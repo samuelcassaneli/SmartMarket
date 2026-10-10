@@ -7,8 +7,18 @@ import kotlin.math.min
 
 object FuzzyMatcher {
 
+    // Stop words e ruídos típicos de encartes brasileiros de supermercado
+    private val STOP_WORDS = setOf(
+        "de", "do", "da", "dos", "das", "em", "para", "com", "sem", "por",
+        "un", "und", "unidade", "unidades", "kg", "g", "gr", "gramas", "kilo", "quilo",
+        "l", "lt", "litro", "litros", "ml", "pct", "pacote", "cx", "caixa",
+        "cada", "leves", "pague", "oferta", "ofertas", "promocao", "super",
+        "sabores", "tipo", "tradicional", "especial", "novo", "nova", "preço", "preco",
+        "nesta", "embalagem", "gratis", "desconto", "clube", "cliente"
+    )
+
     /**
-     * Remove acentos, pontuações e converte para minúsculas.
+     * Remove acentos, pontuações, caracteres especiais e converte para minúsculas.
      */
     fun normalize(text: String): String {
         val nfd = Normalizer.normalize(text.lowercase(Locale.ROOT), Normalizer.Form.NFD)
@@ -19,7 +29,18 @@ object FuzzyMatcher {
     }
 
     /**
-     * Distância de Levenshtein entre duas strings
+     * Extrai tokens limpos ignorando stop words e tamanhos irrelevantes
+     */
+    fun extractKeywords(text: String): Set<String> {
+        val norm = normalize(text)
+        return norm.split(" ")
+            .map { it.trim() }
+            .filter { it.length >= 2 && !STOP_WORDS.contains(it) }
+            .toSet()
+    }
+
+    /**
+     * Distância de Levenshtein padrão
      */
     fun levenshteinDistance(s1: String, s2: String): Int {
         val m = s1.length
@@ -33,11 +54,8 @@ object FuzzyMatcher {
             for (j in 1..n) {
                 val cost = if (s1[i - 1] == s2[j - 1]) 0 else 1
                 dp[i][j] = min(
-                    dp[i - 1][j] + 1, // remoção
-                    min(
-                        dp[i][j - 1] + 1, // inserção
-                        dp[i - 1][j - 1] + cost // substituição
-                    )
+                    dp[i - 1][j] + 1,
+                    min(dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
                 )
             }
         }
@@ -45,35 +63,47 @@ object FuzzyMatcher {
     }
 
     /**
-     * Retorna a similaridade entre 0.0 e 1.0 (onde 1.0 é idêntico)
+     * Calcula afinidade entre texto detectado no encarte e nome do produto cadastrado.
+     * Dá peso crucial a tokens substantivos (ex: se o produto é 'Leite Integral' e o encarte diz 'Leite Condensado',
+     * detecta conflito negativo).
      */
-    fun similarity(s1: String, s2: String): Double {
-        val norm1 = normalize(s1)
-        val norm2 = normalize(s2)
+    fun calculateAffinity(detectedText: String, productName: String): Double {
+        val normDetected = normalize(detectedText)
+        val normProduct = normalize(productName)
 
-        if (norm1 == norm2) return 1.0
-        if (norm1.isEmpty() || norm2.isEmpty()) return 0.0
+        if (normDetected == normProduct) return 1.0
 
-        // Similaridade por tokens/palavras (Jaccard-like)
-        val tokens1 = norm1.split(" ").filter { it.length > 2 }.toSet()
-        val tokens2 = norm2.split(" ").filter { it.length > 2 }.toSet()
+        val detKeywords = extractKeywords(detectedText)
+        val prodKeywords = extractKeywords(productName)
 
-        var tokenScore = 0.0
-        if (tokens1.isNotEmpty() && tokens2.isNotEmpty()) {
-            val intersection = tokens1.intersect(tokens2).size
-            val union = tokens1.union(tokens2).size
-            tokenScore = intersection.toDouble() / union.toDouble()
+        if (detKeywords.isEmpty() || prodKeywords.isEmpty()) return 0.0
+
+        // Interseção de palavras-chave
+        val commonKeywords = detKeywords.intersect(prodKeywords)
+        if (commonKeywords.isEmpty()) return 0.0
+
+        // Diferença que pode caracterizar produto totalmente diferente:
+        // Ex: "leite condensado" x "leite integral" -> common: "leite", mas "condensado" x "integral" são antagônicos
+        val hasAntagonism = (detKeywords.contains("condensado") && !prodKeywords.contains("condensado")) ||
+                (detKeywords.contains("po") && !prodKeywords.contains("po") && detKeywords.contains("leite")) ||
+                (detKeywords.contains("creme") && !prodKeywords.contains("creme")) ||
+                (detKeywords.contains("molho") && !prodKeywords.contains("molho"))
+
+        if (hasAntagonism) {
+            return 0.15 // Penalidade severa para evitar falsos positivos grosseiros
         }
 
-        // Levenshtein Score
-        val maxLen = max(norm1.length, norm2.length)
-        val distance = levenshteinDistance(norm1, norm2)
-        val levenshteinScore = 1.0 - (distance.toDouble() / maxLen.toDouble())
+        // Similaridade Jaccard ponderada pelas keywords do produto
+        // Se a maioria das palavras do produto está no encarte: pontuação alta
+        val recall = commonKeywords.size.toDouble() / prodKeywords.size.toDouble()
+        val precision = commonKeywords.size.toDouble() / detKeywords.size.toDouble()
+        val f1 = if (precision + recall > 0) (2 * precision * recall) / (precision + recall) else 0.0
 
-        // Se uma string estiver contida inteiramente na outra
-        val containsBonus = if (norm1.contains(norm2) || norm2.contains(norm1)) 0.25 else 0.0
+        // Levenshtein geral
+        val maxLen = max(normDetected.length, normProduct.length)
+        val levScore = 1.0 - (levenshteinDistance(normDetected, normProduct).toDouble() / maxLen.toDouble())
 
-        val finalScore = (tokenScore * 0.5) + (levenshteinScore * 0.5) + containsBonus
-        return min(1.0, max(0.0, finalScore))
+        val score = (f1 * 0.7) + (levScore * 0.3)
+        return min(1.0, max(0.0, score))
     }
 }

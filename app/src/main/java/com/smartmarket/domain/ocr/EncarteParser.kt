@@ -5,6 +5,7 @@ import com.smartmarket.data.entity.Product
 import com.smartmarket.domain.matching.FuzzyMatcher
 import java.util.regex.Pattern
 import kotlin.math.abs
+import kotlin.math.min
 
 data class ExtractedOcrItem(
     val detectedText: String,
@@ -18,151 +19,183 @@ data class ExtractedOcrItem(
 object EncarteParser {
 
     // Regex para detectar valores monetários típicos em encartes brasileiros:
-    // Ex: "R$ 19,90", "19,90", "R$ 4.89", "RS 9,99", "14,99 un", "8,50 kg"
-    private val PRICE_REGEX = Pattern.compile(
+    // Ex: "R$ 19,90", "19,90", "R$ 4.89", "RS 9,99", "R$ 0,94"
+    private val PRICE_PATTERN = Pattern.compile(
         """(?:r\$|rs|\$)?\s*(\d{1,4}[,\.]\d{2})""",
         Pattern.CASE_INSENSITIVE
     )
 
-    /**
-     * Extrai possíveis preços de um texto de bloco ou linha.
-     */
-    fun extractPrices(text: String): List<Double> {
-        val matcher = PRICE_REGEX.matcher(text)
-        val prices = mutableListOf<Double>()
-        while (matcher.find()) {
-            val rawPrice = matcher.group(1)?.replace(",", ".")
-            rawPrice?.toDoubleOrNull()?.let {
-                // Filtro para ignorar números absurdos ou irrelevantes como anos (ex: 2026)
-                if (it > 0.10 && it < 10000.0) {
-                    prices.add(it)
-                }
-            }
-        }
-        return prices
-    }
+    // Palavras que indicam texto descritivo e descartam textos puramente operacionais
+    private val JUNK_TEXTS = setOf(
+        "unidade", "aunidade", "un", "und", "kg", "cada", "foto ilustrativa",
+        "o ministerio da saude adverte", "ofertas validas", "cartao", "spani", "atacado", "varejo"
+    )
 
     data class RawTextElement(
         val text: String,
         val boundingBox: Rect?
     )
 
+    data class DetectedPriceBox(
+        val price: Double,
+        val box: Rect?
+    )
+
     /**
-     * Processa linhas detectadas pelo ML Kit, correlacionando textos de produtos
-     * com preços próximos espacialmente ou na mesma linha.
+     * Extrai todos os preços válidos com seus bounding boxes
+     */
+    fun extractPricesWithBoxes(elements: List<RawTextElement>): List<DetectedPriceBox> {
+        val prices = mutableListOf<DetectedPriceBox>()
+        for (elem in elements) {
+            val matcher = PRICE_PATTERN.matcher(elem.text)
+            while (matcher.find()) {
+                val raw = matcher.group(1)?.replace(",", ".")
+                val p = raw?.toDoubleOrNull()
+                // Descartar números fora da faixa de mercado diário (ex: datas como 2026, 2024, números irrelevantes)
+                if (p != null && p >= 0.50 && p < 1500.0) {
+                    prices.add(DetectedPriceBox(price = p, box = elem.boundingBox))
+                }
+            }
+        }
+        return prices
+    }
+
+    /**
+     * Processa elementos do encarte agrupando blocos coerentes de texto de produto
+     * e correlacionando com o preço de oferta mais próximo e abaixo/ao lado do produto.
      */
     fun processDetectedElements(
         elements: List<RawTextElement>,
         registeredProducts: List<Product>
     ): List<ExtractedOcrItem> {
         val result = mutableListOf<ExtractedOcrItem>()
-        val usedPriceElements = mutableSetOf<Int>()
+        if (registeredProducts.isEmpty() || elements.isEmpty()) return result
 
-        // Primeiro passo: identificar elementos que são puramente preços e os que têm descrições
-        for (i in elements.indices) {
-            val elem = elements[i]
-            val pricesInElem = extractPrices(elem.text)
+        val priceBoxes = extractPricesWithBoxes(elements)
+        val usedPriceBoxes = mutableSetOf<Int>()
 
-            // Se o próprio elemento já tem texto + preço (ex: "Leite Integral Piracanjuba R$ 4,89")
-            if (pricesInElem.isNotEmpty() && elem.text.length > 8) {
-                val cleanedText = elem.text.replace(PRICE_REGEX.toRegex(), "").trim()
-                if (cleanedText.length >= 3) {
-                    val (bestProduct, score) = findBestMatch(cleanedText, registeredProducts)
-                    result.add(
-                        ExtractedOcrItem(
-                            detectedText = cleanedText,
-                            detectedPrice = pricesInElem.first(),
-                            matchedProduct = bestProduct,
-                            matchConfidence = score,
-                            boundingBox = elem.boundingBox
+        // 1. Filtrar elementos de texto com substância (mais de 4 caracteres, que não sejam apenas preços ou ruídos)
+        val validProductCandidates = elements.filter { elem ->
+            val clean = elem.text.trim().lowercase()
+            val isOnlyPrice = PRICE_PATTERN.matcher(clean).matches()
+            val isJunk = JUNK_TEXTS.contains(clean) || clean.length < 4
+            !isOnlyPrice && !isJunk
+        }
+
+        // Agrupamos candidatos próximos verticalmente (ex: linhas contíguas do mesmo produto)
+        val groupedProductTexts = mutableListOf<RawTextElement>()
+        for (candidate in validProductCandidates) {
+            var merged = false
+            for (i in groupedProductTexts.indices) {
+                val existing = groupedProductTexts[i]
+                if (existing.boundingBox != null && candidate.boundingBox != null) {
+                    val vertDist = abs(candidate.boundingBox.top - existing.boundingBox.bottom)
+                    val horizDist = abs(candidate.boundingBox.centerX() - existing.boundingBox.centerX())
+                    if (vertDist < 50 && horizDist < 120) {
+                        // Mesclar textos da mesma etiqueta de produto
+                        groupedProductTexts[i] = RawTextElement(
+                            text = "${existing.text} ${candidate.text}".trim(),
+                            boundingBox = Rect(
+                                min(existing.boundingBox.left, candidate.boundingBox.left),
+                                min(existing.boundingBox.top, candidate.boundingBox.top),
+                                maxOf(existing.boundingBox.right, candidate.boundingBox.right),
+                                maxOf(existing.boundingBox.bottom, candidate.boundingBox.bottom)
+                            )
                         )
-                    )
-                    usedPriceElements.add(i)
-                    continue
+                        merged = true
+                        break
+                    }
                 }
+            }
+            if (!merged) {
+                groupedProductTexts.add(candidate)
             }
         }
 
-        // Segundo passo: para textos sem preço, buscar preço espacialmente mais próximo
-        for (i in elements.indices) {
-            if (i in usedPriceElements) continue
-            val textElem = elements[i]
-            val prices = extractPrices(textElem.text)
-            if (prices.isNotEmpty()) continue // É apenas preço
+        // 2. Para cada bloco de produto identificado, calcular a melhor afinidade contra a lista de produtos cadastrados
+        for (prodText in groupedProductTexts) {
+            val (bestProduct, score) = findBestAffinityMatch(prodText.text, registeredProducts)
 
-            val cleaned = textElem.text.trim()
-            if (cleaned.length < 3) continue
-
-            val (bestProduct, score) = findBestMatch(cleaned, registeredProducts)
-            if (score >= 0.40) { // Candidato a produto cadastrado
-                // Procurar preço mais próximo (abaixo ou ao lado)
-                var closestPrice: Double? = null
+            // Só processamos como item se tiver correspondência razoável (> 0.52) OU se for explicitamente um produto
+            if (bestProduct != null && score >= 0.50) {
+                // Procurar o preço mais próximo deste produto no encarte
+                var bestPrice: Double? = null
                 var minDistance = Double.MAX_VALUE
-                var closestIndex = -1
+                var bestPriceIndex = -1
 
-                for (j in elements.indices) {
-                    if (j == i) continue
-                    val otherElem = elements[j]
-                    val otherPrices = extractPrices(otherElem.text)
-                    if (otherPrices.isNotEmpty()) {
-                        val dist = calculateDistance(textElem.boundingBox, otherElem.boundingBox)
-                        if (dist < minDistance && dist < 400.0) { // Distância razoável em pixels
-                            minDistance = dist
-                            closestPrice = otherPrices.first()
-                            closestIndex = j
-                        }
+                for (pIdx in priceBoxes.indices) {
+                    val pBox = priceBoxes[pIdx]
+                    val dist = calculateDistanceToPrice(prodText.boundingBox, pBox.box)
+                    if (dist < minDistance && dist < 450.0) {
+                        minDistance = dist
+                        bestPrice = pBox.price
+                        bestPriceIndex = pIdx
                     }
                 }
 
-                if (closestPrice != null) {
+                if (bestPrice != null) {
                     result.add(
                         ExtractedOcrItem(
-                            detectedText = cleaned,
-                            detectedPrice = closestPrice,
+                            detectedText = prodText.text,
+                            detectedPrice = bestPrice,
                             matchedProduct = bestProduct,
                             matchConfidence = score,
-                            boundingBox = textElem.boundingBox
+                            boundingBox = prodText.boundingBox,
+                            isConfirmed = true
                         )
                     )
-                    if (closestIndex != -1) usedPriceElements.add(closestIndex)
+                    if (bestPriceIndex != -1) usedPriceBoxes.add(bestPriceIndex)
                 }
             }
         }
 
-        return result
+        // Eliminar duplicatas (se o mesmo produto cadastrado foi pego 2 vezes pelo mesmo encarte, manter o de maior confiança)
+        val deduplicated = result
+            .groupBy { it.matchedProduct?.id }
+            .mapValues { (_, items) -> items.maxByOrNull { it.matchConfidence }!! }
+            .values
+            .toList()
+
+        return deduplicated
     }
 
-    private fun findBestMatch(
+    private fun findBestAffinityMatch(
         text: String,
         registeredProducts: List<Product>
     ): Pair<Product?, Double> {
-        var bestProduct: Product? = null
-        var bestScore = 0.0
+        var bestProd: Product? = null
+        var maxScore = 0.0
 
-        for (product in registeredProducts) {
-            val score = FuzzyMatcher.similarity(text, product.name)
-            if (score > bestScore) {
-                bestScore = score
-                bestProduct = product
+        for (p in registeredProducts) {
+            val score = FuzzyMatcher.calculateAffinity(text, p.name)
+            if (score > maxScore) {
+                maxScore = score
+                bestProd = p
             }
         }
 
-        return Pair(if (bestScore >= 0.35) bestProduct else null, bestScore)
+        return Pair(if (maxScore >= 0.50) bestProd else null, maxScore)
     }
 
-    private fun calculateDistance(r1: Rect?, r2: Rect?): Double {
-        if (r1 == null || r2 == null) return Double.MAX_VALUE
-        // Distância entre o centro dos retângulos
-        val cx1 = r1.centerX()
-        val cy1 = r1.centerY()
-        val cx2 = r2.centerX()
-        val cy2 = r2.centerY()
+    private fun calculateDistanceToPrice(itemBox: Rect?, priceBox: Rect?): Double {
+        if (itemBox == null || priceBox == null) return Double.MAX_VALUE
 
-        // Ponderar: em encartes, o preço frequentemente fica ligeiramente abaixo do texto
+        val cx1 = itemBox.centerX()
+        val cy1 = itemBox.centerY()
+        val cx2 = priceBox.centerX()
+        val cy2 = priceBox.centerY()
+
         val dx = abs(cx1 - cx2)
-        val dy = cy2 - cy1 // positivo se r2 estiver abaixo de r1
-        val verticalPenalty = if (dy < -50) 2.0 else 1.0 // penaliza se o preço estiver muito acima
+        val dy = cy2 - cy1 // Positivo se o preço estiver abaixo do nome do produto
 
-        return kotlin.math.sqrt((dx * dx + (dy * verticalPenalty) * (dy * verticalPenalty)).toDouble())
+        // Em folhetos/encartes, o preço fica tipicamente ABAIXO ou à direita do nome do produto
+        val verticalFactor = when {
+            dy in 0..250 -> 0.8 // Perfeito: logo abaixo do título
+            dy > 250 -> 1.8     // Longe demais para baixo
+            dy in -80..0 -> 1.2  // Ao lado ou ligeiramente acima
+            else -> 3.5          // Bem acima do produto (improvável)
+        }
+
+        return kotlin.math.sqrt((dx * dx + (dy * verticalFactor) * (dy * verticalFactor)).toDouble())
     }
 }

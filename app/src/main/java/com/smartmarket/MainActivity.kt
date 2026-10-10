@@ -8,10 +8,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -36,6 +38,9 @@ import com.smartmarket.ui.screens.markets.MarketsViewModelFactory
 import com.smartmarket.ui.screens.ocr.OcrScannerScreen
 import com.smartmarket.ui.screens.ocr.OcrViewModel
 import com.smartmarket.ui.screens.ocr.OcrViewModelFactory
+import com.smartmarket.ui.screens.prices.ManualPriceScreen
+import com.smartmarket.ui.screens.prices.ManualPriceViewModel
+import com.smartmarket.ui.screens.prices.ManualPriceViewModelFactory
 import com.smartmarket.ui.screens.products.ProductsScreen
 import com.smartmarket.ui.screens.products.ProductsViewModel
 import com.smartmarket.ui.screens.products.ProductsViewModelFactory
@@ -73,6 +78,12 @@ class MainActivity : ComponentActivity() {
             productDao = db.productDao()
         )
 
+        val pricesViewModelFactory = ManualPriceViewModelFactory(
+            productDao = db.productDao(),
+            supermarketDao = db.supermarketDao(),
+            priceDao = db.productPriceDao()
+        )
+
         setContent {
             SmartMarketTheme {
                 val navController = rememberNavController()
@@ -93,6 +104,10 @@ class MainActivity : ComponentActivity() {
                     productsViewModelFactory
                 }.value
 
+                val manualPriceViewModel: ManualPriceViewModel = viewModels<ManualPriceViewModel> {
+                    pricesViewModelFactory
+                }.value
+
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
 
@@ -103,16 +118,17 @@ class MainActivity : ComponentActivity() {
                                 Text(
                                     text = when (currentRoute) {
                                         "lists" -> "SmartMarket • Listas"
-                                        "markets" -> "SmartMarket • Supermercados"
-                                        "products" -> "SmartMarket • Produtos"
                                         "ocr" -> "SmartMarket • OCR Encarte"
+                                        "prices" -> "SmartMarket • Preços Manuais"
+                                        "markets" -> "SmartMarket • Mercados"
+                                        "products" -> "SmartMarket • Produtos"
                                         else -> "SmartMarket"
                                     },
-                                    fontWeight = FontWeight.ExtraBold
+                                    fontWeight = FontWeight.Bold
                                 )
                             },
                             colors = TopAppBarDefaults.topAppBarColors(
-                                containerColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                                containerColor = MaterialTheme.colorScheme.primary,
                                 titleContentColor = Color.White
                             )
                         )
@@ -134,10 +150,23 @@ class MainActivity : ComponentActivity() {
 
                             NavigationBarItem(
                                 icon = { Icon(Icons.Default.CameraAlt, contentDescription = "OCR Encarte") },
-                                label = { Text("OCR Encarte") },
+                                label = { Text("OCR") },
                                 selected = currentRoute == "ocr",
                                 onClick = {
                                     navController.navigate("ocr") {
+                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            )
+
+                            NavigationBarItem(
+                                icon = { Icon(Icons.Default.Payments, contentDescription = "Preços Manuais") },
+                                label = { Text("Preços") },
+                                selected = currentRoute == "prices",
+                                onClick = {
+                                    navController.navigate("prices") {
                                         popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                                         launchSingleTop = true
                                         restoreState = true
@@ -197,6 +226,10 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             )
+                        }
+
+                        composable("prices") {
+                            ManualPriceScreen(viewModel = manualPriceViewModel)
                         }
 
                         composable("markets") {
