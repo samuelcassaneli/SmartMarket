@@ -14,4 +14,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "SmartMarket"
-include ':app'
+include(":app")
