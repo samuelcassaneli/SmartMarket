@@ -773,3 +773,79 @@ fun DuplicateListDialog(
         }
     )
 }
+
+@Composable
+fun AddItemDialog(
+    products: List<com.smartmarket.data.entity.Product>,
+    onDismiss: () -> Unit,
+    onConfirm: (productId: Long, quantity: Double) -> Unit
+) {
+    var selectedProduct by remember { mutableStateOf(products.firstOrNull()) }
+    var quantityText by remember { mutableStateOf(selectedProduct?.defaultMonthlyQuantity?.toString() ?: "1.0") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Adicionar Item à Lista") },
+        text = {
+            Column {
+                Text("Selecione o Produto:", fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyColumn(modifier = Modifier.height(200.dp)) {
+                    items(products) { prod ->
+                        val isSelected = selectedProduct?.id == prod.id
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedProduct = prod
+                                    quantityText = prod.defaultMonthlyQuantity.toString()
+                                }
+                                .padding(8.dp)
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                    RoundedCornerShape(8.dp)
+                                ),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    prod.name,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "${prod.category} • Padrão: ${prod.defaultMonthlyQuantity} ${prod.unit}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = quantityText,
+                    onValueChange = { quantityText = it },
+                    label = { Text("Quantidade para esta lista") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    selectedProduct?.let {
+                        val qty = quantityText.replace(",", ".").toDoubleOrNull() ?: 1.0
+                        onConfirm(it.id, qty)
+                    }
+                }
+            ) {
+                Text("Adicionar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
+
