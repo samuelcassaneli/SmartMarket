@@ -9,5 +9,8 @@ data class Supermarket(
     val id: Long = 0,
     val name: String,
     val address: String = "",
-    val colorHex: String = "#1E88E5" // Cor para identificação visual nas comparações
+    val phone: String = "",
+    val notes: String = "",
+    val colorHex: String = "#1E88E5", // Cor personalizada para identificação nos gráficos e listas
+    val isFavorite: Boolean = false
 )

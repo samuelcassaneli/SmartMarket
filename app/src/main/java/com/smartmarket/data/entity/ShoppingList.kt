@@ -12,6 +12,8 @@ data class ShoppingList(
     val name: String,
     val referenceMonth: Int,
     val referenceYear: Int,
+    val notes: String = "",
+    val budgetTarget: Double = 0.0, // Orçamento meta opcional para a compra
     val createdAt: Long = System.currentTimeMillis()
 )
 

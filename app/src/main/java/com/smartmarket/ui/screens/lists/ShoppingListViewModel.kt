@@ -11,13 +11,12 @@ import com.smartmarket.data.dao.SupermarketDao
 import com.smartmarket.data.entity.Product
 import com.smartmarket.data.entity.ShoppingList
 import com.smartmarket.data.entity.ShoppingListItem
-import com.smartmarket.domain.comparator.ComparisonSummary
-import com.smartmarket.domain.comparator.PriceComparator
+import com.smartmarket.domain.comparator.IntelligentPriceComparator
+import com.smartmarket.domain.comparator.MonthComparisonSummary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -29,6 +28,7 @@ class ShoppingListViewModel(
     private val priceDao: ProductPriceDao
 ) : ViewModel() {
 
+    // Todas as listas registradas no app
     val allLists: StateFlow<List<ShoppingList>> = listDao.getAllLists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -44,10 +44,21 @@ class ShoppingListViewModel(
     private val _selectedYear = MutableStateFlow(Calendar.getInstance().get(Calendar.YEAR))
     val selectedYear = _selectedYear.asStateFlow()
 
+    // Mês anterior de comparação (configurável para comparar com qualquer mês do histórico)
+    private val _compareMonth = MutableStateFlow(
+        if (Calendar.getInstance().get(Calendar.MONTH) == 0) 12 else Calendar.getInstance().get(Calendar.MONTH)
+    )
+    val compareMonth = _compareMonth.asStateFlow()
+
+    private val _compareYear = MutableStateFlow(
+        if (Calendar.getInstance().get(Calendar.MONTH) == 0) Calendar.getInstance().get(Calendar.YEAR) - 1 else Calendar.getInstance().get(Calendar.YEAR)
+    )
+    val compareYear = _compareYear.asStateFlow()
+
     private val _currentListItems = MutableStateFlow<List<ShoppingItemWithProduct>>(emptyList())
     val currentListItems = _currentListItems.asStateFlow()
 
-    private val _comparison = MutableStateFlow<ComparisonSummary?>(null)
+    private val _comparison = MutableStateFlow<MonthComparisonSummary?>(null)
     val comparison = _comparison.asStateFlow()
 
     fun selectList(listId: Long) {
@@ -57,6 +68,11 @@ class ShoppingListViewModel(
             list?.let {
                 _selectedMonth.value = it.referenceMonth
                 _selectedYear.value = it.referenceYear
+                // Atualiza mês anterior de referência
+                val prevM = if (it.referenceMonth == 1) 12 else it.referenceMonth - 1
+                val prevY = if (it.referenceMonth == 1) it.referenceYear - 1 else it.referenceYear
+                _compareMonth.value = prevM
+                _compareYear.value = prevY
             }
             listDao.getItemsForList(listId).collect { items ->
                 _currentListItems.value = items
@@ -65,9 +81,9 @@ class ShoppingListViewModel(
         }
     }
 
-    fun setMonthYear(month: Int, year: Int) {
-        _selectedMonth.value = month
-        _selectedYear.value = year
+    fun setCompareMonthYear(month: Int, year: Int) {
+        _compareMonth.value = month
+        _compareYear.value = year
         refreshComparison()
     }
 
@@ -76,38 +92,92 @@ class ShoppingListViewModel(
         viewModelScope.launch {
             val list = listDao.getListById(listId) ?: return@launch
             val items = _currentListItems.value
-            val supermarkets = supermarketDao.getAllSupermarkets()
+            val supermarkets = supermarketDao.getSupermarketById(1) // apenas para trigger
+            val allMarkets = supermarketDao.getAllSupermarkets()
             val m = _selectedMonth.value
             val y = _selectedYear.value
+            val prevM = _compareMonth.value
+            val prevY = _compareYear.value
 
-            combine(
-                supermarketDao.getAllSupermarkets(),
-                priceDao.getPricesForMonth(m, y)
-            ) { markets, prices ->
-                PriceComparator.compare(
+            allMarkets.collect { markets ->
+                val currentPrices = priceDao.getPricesForMonthSync(m, y)
+                val prevPrices = priceDao.getPricesForMonthSync(prevM, prevY)
+
+                val summary = IntelligentPriceComparator.compareWithPreviousMonth(
                     items = items,
                     supermarkets = markets,
-                    prices = prices,
-                    month = m,
-                    year = y,
+                    currentPrices = currentPrices,
+                    previousPrices = prevPrices,
+                    currentMonth = m,
+                    currentYear = y,
+                    previousMonth = prevM,
+                    previousYear = prevY,
                     listName = list.name
                 )
-            }.collect { summary ->
                 _comparison.value = summary
             }
         }
     }
 
-    fun createList(name: String, month: Int, year: Int) {
+    fun createList(name: String, month: Int, year: Int, budget: Double, copyDefaultMonthlyProducts: Boolean) {
         viewModelScope.launch {
             val id = listDao.insertList(
                 ShoppingList(
                     name = name,
                     referenceMonth = month,
-                    referenceYear = year
+                    referenceYear = year,
+                    budgetTarget = budget
                 )
             )
+
+            // Se solicitado, popula automaticamente com a quantidade média mensal dos produtos cadastrados
+            if (copyDefaultMonthlyProducts) {
+                val prods = productDao.searchProducts("")
+                val itemsToInsert = prods.filter { it.defaultMonthlyQuantity > 0 }.map { p ->
+                    ShoppingListItem(
+                        shoppingListId = id,
+                        productId = p.id,
+                        quantity = p.defaultMonthlyQuantity
+                    )
+                }
+                listDao.insertItems(itemsToInsert)
+            }
+
             selectList(id)
+        }
+    }
+
+    fun duplicateListToMonth(sourceListId: Long, newName: String, targetMonth: Int, targetYear: Int) {
+        viewModelScope.launch {
+            val sourceItems = listDao.getItemsForListSync(sourceListId)
+            val newId = listDao.insertList(
+                ShoppingList(
+                    name = newName,
+                    referenceMonth = targetMonth,
+                    referenceYear = targetYear
+                )
+            )
+            val clonedItems = sourceItems.map {
+                ShoppingListItem(
+                    shoppingListId = newId,
+                    productId = it.productId,
+                    quantity = it.quantity,
+                    isChecked = false
+                )
+            }
+            listDao.insertItems(clonedItems)
+            selectList(newId)
+        }
+    }
+
+    fun deleteList(list: ShoppingList) {
+        viewModelScope.launch {
+            listDao.deleteList(list)
+            if (_selectedListId.value == list.id) {
+                _selectedListId.value = null
+                _currentListItems.value = emptyList()
+                _comparison.value = null
+            }
         }
     }
 
@@ -119,6 +189,22 @@ class ShoppingListViewModel(
                     shoppingListId = listId,
                     productId = productId,
                     quantity = quantity
+                )
+            )
+        }
+    }
+
+    fun updateItemQuantity(itemId: Long, newQuantity: Double) {
+        val listId = _selectedListId.value ?: return
+        viewModelScope.launch {
+            val item = _currentListItems.value.find { it.itemId == itemId } ?: return@launch
+            listDao.updateItem(
+                ShoppingListItem(
+                    id = itemId,
+                    shoppingListId = listId,
+                    productId = item.productId,
+                    quantity = newQuantity,
+                    isChecked = item.isChecked
                 )
             )
         }

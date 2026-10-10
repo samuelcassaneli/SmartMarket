@@ -20,6 +20,7 @@ data class ShoppingItemWithProduct(
     val productName: String,
     val productCategory: String,
     val productUnit: String,
+    val defaultMonthlyQuantity: Double,
     val quantity: Double,
     val isChecked: Boolean
 )
@@ -29,7 +30,15 @@ data class ProductWithPrices(
     val productName: String,
     val productCategory: String,
     val productUnit: String,
+    val defaultMonthlyQuantity: Double,
     val prices: List<ProductPrice>
+)
+
+data class MonthTotalEstimate(
+    val referenceMonth: Int,
+    val referenceYear: Int,
+    val listName: String,
+    val itemCount: Int
 )
 
 @Dao
@@ -40,7 +49,13 @@ interface ProductDao {
     @Query("SELECT * FROM products WHERE id = :id")
     suspend fun getProductById(id: Long): Product?
 
-    @Query("SELECT * FROM products WHERE normalizedName LIKE '%' || :query || '%'")
+    @Query("SELECT * FROM products WHERE category = :category ORDER BY name ASC")
+    fun getProductsByCategory(category: String): Flow<List<Product>>
+
+    @Query("SELECT DISTINCT category FROM products ORDER BY category ASC")
+    fun getAllCategories(): Flow<List<String>>
+
+    @Query("SELECT * FROM products WHERE normalizedName LIKE '%' || :query || '%' ORDER BY name ASC")
     suspend fun searchProducts(query: String): List<Product>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -58,7 +73,7 @@ interface ProductDao {
 
 @Dao
 interface SupermarketDao {
-    @Query("SELECT * FROM supermarkets ORDER BY name ASC")
+    @Query("SELECT * FROM supermarkets ORDER BY isFavorite DESC, name ASC")
     fun getAllSupermarkets(): Flow<List<Supermarket>>
 
     @Query("SELECT * FROM supermarkets WHERE id = :id")
@@ -79,6 +94,12 @@ interface ProductPriceDao {
     @Query("SELECT * FROM product_prices WHERE referenceMonth = :month AND referenceYear = :year")
     fun getPricesForMonth(month: Int, year: Int): Flow<List<ProductPrice>>
 
+    @Query("SELECT * FROM product_prices WHERE referenceMonth = :month AND referenceYear = :year")
+    suspend fun getPricesForMonthSync(month: Int, year: Int): List<ProductPrice>
+
+    @Query("SELECT * FROM product_prices WHERE productId = :productId ORDER BY referenceYear DESC, referenceMonth DESC")
+    fun getPriceHistoryForProduct(productId: Long): Flow<List<ProductPrice>>
+
     @Query("SELECT * FROM product_prices WHERE productId = :productId AND referenceMonth = :month AND referenceYear = :year")
     suspend fun getPricesForProductInMonth(productId: Long, month: Int, year: Int): List<ProductPrice>
 
@@ -93,6 +114,9 @@ interface ProductPriceDao {
 
     @Query("DELETE FROM product_prices WHERE id = :id")
     suspend fun deletePriceById(id: Long)
+
+    @Query("DELETE FROM product_prices WHERE supermarketId = :supermarketId")
+    suspend fun deletePricesBySupermarket(supermarketId: Long)
 }
 
 @Dao
@@ -100,18 +124,25 @@ interface ShoppingListDao {
     @Query("SELECT * FROM shopping_lists ORDER BY referenceYear DESC, referenceMonth DESC, createdAt DESC")
     fun getAllLists(): Flow<List<ShoppingList>>
 
+    @Query("SELECT * FROM shopping_lists WHERE referenceMonth = :month AND referenceYear = :year ORDER BY createdAt DESC")
+    fun getListsByMonthYear(month: Int, year: Int): Flow<List<ShoppingList>>
+
     @Query("SELECT * FROM shopping_lists WHERE id = :id")
     suspend fun getListById(id: Long): ShoppingList?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertList(list: ShoppingList): Long
 
+    @Update
+    suspend fun updateList(list: ShoppingList)
+
     @Delete
     suspend fun deleteList(list: ShoppingList)
 
     @Query("""
         SELECT sli.id as itemId, sli.shoppingListId, sli.productId, p.name as productName, 
-               p.category as productCategory, p.unit as productUnit, sli.quantity, sli.isChecked
+               p.category as productCategory, p.unit as productUnit, p.defaultMonthlyQuantity,
+               sli.quantity, sli.isChecked
         FROM shopping_list_items sli
         INNER JOIN products p ON p.id = sli.productId
         WHERE sli.shoppingListId = :listId
@@ -119,8 +150,21 @@ interface ShoppingListDao {
     """)
     fun getItemsForList(listId: Long): Flow<List<ShoppingItemWithProduct>>
 
+    @Query("""
+        SELECT sli.id as itemId, sli.shoppingListId, sli.productId, p.name as productName, 
+               p.category as productCategory, p.unit as productUnit, p.defaultMonthlyQuantity,
+               sli.quantity, sli.isChecked
+        FROM shopping_list_items sli
+        INNER JOIN products p ON p.id = sli.productId
+        WHERE sli.shoppingListId = :listId
+    """)
+    suspend fun getItemsForListSync(listId: Long): List<ShoppingItemWithProduct>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertItem(item: ShoppingListItem): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertItems(items: List<ShoppingListItem>)
 
     @Update
     suspend fun updateItem(item: ShoppingListItem)
@@ -130,4 +174,7 @@ interface ShoppingListDao {
 
     @Query("DELETE FROM shopping_list_items WHERE id = :itemId")
     suspend fun deleteItem(itemId: Long)
+
+    @Query("DELETE FROM shopping_list_items WHERE shoppingListId = :listId")
+    suspend fun clearItemsInList(listId: Long)
 }
