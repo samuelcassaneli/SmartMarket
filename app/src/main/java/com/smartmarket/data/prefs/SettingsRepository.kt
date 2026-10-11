@@ -35,6 +35,8 @@ data class AppSettings(
     val geminiApiKey: String = "",
     /** Modelo escolhido automaticamente na validação da chave (ex.: "gemini-2.5-flash"). */
     val geminiModel: String = "",
+    /** IA no modo rápido (modelo Flash-Lite): mais veloz, um pouco menos precisa. */
+    val aiFastMode: Boolean = false,
     /** Intervalo da verificação automática de encartes e preços, em dias (0 = desligada). */
     val checkIntervalDays: Int = 7
 ) {
@@ -60,6 +62,7 @@ class SettingsRepository(private val context: Context) {
         val GEMINI_KEY = stringPreferencesKey("gemini_key")
         val GEMINI_MODEL = stringPreferencesKey("gemini_model")
         val CHECK_INTERVAL = intPreferencesKey("check_interval_days")
+        val AI_FAST = booleanPreferencesKey("ai_fast")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -75,6 +78,7 @@ class SettingsRepository(private val context: Context) {
             aiEnabled = p[Keys.AI_ENABLED] ?: false,
             geminiApiKey = p[Keys.GEMINI_KEY] ?: "",
             geminiModel = p[Keys.GEMINI_MODEL] ?: "",
+            aiFastMode = p[Keys.AI_FAST] ?: false,
             // quem desligou a busca automática de encartes na versão anterior continua desligado
             checkIntervalDays = p[Keys.CHECK_INTERVAL] ?: if (p[Keys.FLYER_AUTO_SYNC] == false) 0 else 7
         )
@@ -100,6 +104,11 @@ class SettingsRepository(private val context: Context) {
     suspend fun setGemini(key: String, model: String) = context.dataStore.edit {
         it[Keys.GEMINI_KEY] = key.trim()
         it[Keys.GEMINI_MODEL] = model
+    }
+    /** Troca o modo e limpa o modelo para ser escolhido de novo na próxima leitura. */
+    suspend fun setAiFastMode(fast: Boolean) = context.dataStore.edit {
+        it[Keys.AI_FAST] = fast
+        it[Keys.GEMINI_MODEL] = ""
     }
     suspend fun setCheckIntervalDays(days: Int) = context.dataStore.edit {
         it[Keys.CHECK_INTERVAL] = days

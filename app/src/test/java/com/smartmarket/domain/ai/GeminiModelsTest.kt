@@ -51,4 +51,36 @@ class GeminiModelsTest {
         assertEquals("Limite gratuito da IA atingido; tente mais tarde", GeminiModels.errorMessage(429, "{}"))
         assertEquals("Chave da IA inválida", GeminiModels.errorMessage(400, """{"error":{"message":"API key not valid. Please pass a valid API key."}}"""))
     }
+
+    @Test
+    fun `modo rapido escolhe o flash-lite`() {
+        val models = listOf(
+            GeminiModels.ModelInfo("models/gemini-3.8-flash", listOf("generateContent")),
+            GeminiModels.ModelInfo("models/gemini-3.5-flash-lite", listOf("generateContent"))
+        )
+        assertEquals("gemini-3.8-flash", GeminiModels.pickModel(models))
+        assertEquals("gemini-3.5-flash-lite", GeminiModels.pickModel(models, preferLite = true))
+    }
+
+    @Test
+    fun `raciocinio minimo por familia de modelo`() {
+        assertEquals("thinkingLevel" to "low", GeminiModels.fastThinking("gemini-3.8-flash"))
+        assertEquals("thinkingBudget" to 0, GeminiModels.fastThinking("gemini-2.5-flash"))
+        assertEquals(null, GeminiModels.fastThinking("gemini-2.0-flash"))
+    }
+
+    @Test
+    fun `espera pedida pela api`() {
+        val body = """{"error":{"code":429,"details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"23s"}]}}"""
+        assertEquals(23, GeminiModels.retryDelaySeconds(body))
+        assertEquals(null, GeminiModels.retryDelaySeconds("{}"))
+    }
+
+    @Test
+    fun `links da ia so valem se estavam na pagina`() {
+        val body = """{"candidates":[{"content":{"parts":[{"text":"{\"pdfs\":[\"https://a.com/encarte.pdf\",\"https://evil.com/x.pdf\"],\"imagens\":[]}"}]}}]}"""
+        val (pdfs, imgs) = GeminiModels.parseLinks(body, setOf("https://a.com/encarte.pdf"))
+        assertEquals(listOf("https://a.com/encarte.pdf"), pdfs)
+        assertTrue(imgs.isEmpty())
+    }
 }

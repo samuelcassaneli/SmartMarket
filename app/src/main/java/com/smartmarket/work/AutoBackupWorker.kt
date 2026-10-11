@@ -26,7 +26,7 @@ class AutoBackupWorker(appContext: Context, params: WorkerParameters) : Coroutin
 
         val treeUri = Uri.parse(settings.autoBackupTreeUri)
         return try {
-            BackupManager(applicationContext, container.db).exportToTree(treeUri, keep = KEEP)
+            BackupManager(applicationContext, container.db, container.settings).exportToTree(treeUri, keep = KEEP)
             Result.success()
         } catch (e: SecurityException) {
             // Permissão da pasta perdida: não adianta tentar de novo

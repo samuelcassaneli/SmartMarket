@@ -12,6 +12,8 @@ import com.smartmarket.domain.backup.BackupFormatException
 import com.smartmarket.domain.backup.BackupManager
 import com.smartmarket.work.AutoBackupWorker
 import com.smartmarket.domain.ai.GeminiClient
+import com.smartmarket.data.entity.FlyerKind
+import com.smartmarket.data.entity.Supermarket
 import com.smartmarket.work.FlyerSyncWorker
 import com.smartmarket.work.PriceAlertWorker
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -31,6 +33,8 @@ import kotlinx.coroutines.launch
  * - alertas de preço: [PriceAlertWorker.schedule];
  * - backup automático: [AutoBackupWorker.schedule].
  */
+private val MARKET_COLORS = listOf("#E30613", "#F28C00", "#0057A8", "#2E7D32", "#7B1FA2", "#00838F", "#C2185B", "#5D4037")
+
 class SettingsViewModel(
     private val appContext: Context,
     private val settings: SettingsRepository,
@@ -38,7 +42,9 @@ class SettingsViewModel(
     private val gemini: GeminiClient
 ) : ViewModel() {
 
-    private val backup = BackupManager(appContext, db)
+    private val supermarketDao = db.supermarketDao()
+
+    private val backup = BackupManager(appContext, db, settings)
 
     val state: StateFlow<AppSettings?> = settings.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -80,6 +86,50 @@ class SettingsViewModel(
 
     fun setAiEnabled(enabled: Boolean) = viewModelScope.launch { settings.setAiEnabled(enabled) }
 
+    /** Modo rápido usa o Flash-Lite; o modelo é escolhido de novo com a chave atual. */
+    fun setAiFast(fast: Boolean) = viewModelScope.launch {
+        settings.setAiFastMode(fast)
+        val key = settings.current().geminiApiKey
+        if (key.isNotBlank()) {
+            runCatching { gemini.discoverModel(key, fast) }
+                .onSuccess { settings.setGemini(key, it); _messages.tryEmit("Modelo: $it") }
+        }
+    }
+
+    // ---- Mercados e links de encarte
+
+    val markets: StateFlow<List<Supermarket>> = supermarketDao.getAllSupermarkets()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Salva o link de encartes do mercado; o tipo de leitura é detectado pelo endereço. */
+    fun saveFlyerLink(market: Supermarket, url: String) = viewModelScope.launch {
+        val clean = normalizeLink(url)
+        supermarketDao.updateSupermarket(market.copy(flyerUrl = clean, flyerKind = FlyerKind.detect(clean)))
+        _messages.tryEmit(if (clean.isBlank()) "Link removido de ${market.name}" else "Link salvo para ${market.name}")
+    }
+
+    /** Cria um mercado a partir do nome e do link (para quem mora em outra cidade). */
+    fun addMarketWithLink(name: String, url: String, city: String) = viewModelScope.launch {
+        val clean = normalizeLink(url)
+        if (name.isBlank()) return@launch
+        supermarketDao.insertSupermarket(
+            Supermarket(
+                name = name.trim(),
+                city = city.trim(),
+                flyerUrl = clean,
+                flyerKind = FlyerKind.detect(clean),
+                colorHex = MARKET_COLORS[(markets.value.size) % MARKET_COLORS.size]
+            )
+        )
+        _messages.tryEmit("${name.trim()} adicionado")
+    }
+
+    private fun normalizeLink(url: String): String {
+        val u = url.trim()
+        if (u.isBlank()) return ""
+        return if (u.startsWith("http://") || u.startsWith("https://")) u else "https://$u"
+    }
+
     /** Valida a chave listando os modelos e guarda o melhor "flash" disponível. */
     fun saveGeminiKey(key: String) = viewModelScope.launch {
         val k = key.trim()
@@ -91,7 +141,7 @@ class SettingsViewModel(
         }
         _aiChecking.value = true
         try {
-            val model = gemini.discoverModel(k)
+            val model = gemini.discoverModel(k, settings.current().aiFastMode)
             settings.setGemini(k, model)
             settings.setAiEnabled(true)
             _messages.tryEmit("Chave válida. Modelo: $model")

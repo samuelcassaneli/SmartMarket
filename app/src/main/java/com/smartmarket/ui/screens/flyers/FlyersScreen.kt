@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,6 +67,7 @@ import com.smartmarket.ui.theme.Spacing
 import com.smartmarket.ui.theme.extended
 import com.smartmarket.work.FlyerSyncWorker
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -78,7 +80,7 @@ data class SyncUi(val running: Boolean = false, val message: String? = null)
 
 class FlyersViewModel(
     private val appContext: Context,
-    flyerDao: FlyerDao,
+    private val flyerDao: FlyerDao,
     supermarketDao: SupermarketDao
 ) : ViewModel() {
 
@@ -144,6 +146,21 @@ class FlyersViewModel(
         FlyerSyncWorker.runNow(appContext)
     }
 
+    fun rejectPending(flyerId: Long) {
+        viewModelScope.launch {
+            val n = flyerDao.rejectPending(flyerId)
+            _events.send(if (n == 0) "Não havia ofertas pendentes" else "$n ofertas recusadas")
+        }
+    }
+
+    /** Descarta a leitura do encarte e busca de novo (só ele é relido; os outros já lidos são pulados). */
+    fun reread(flyerId: Long) {
+        viewModelScope.launch {
+            flyerDao.deleteFlyer(flyerId)
+            syncNow()
+        }
+    }
+
     override fun onCleared() {
         liveData.removeObserver(observer)
     }
@@ -193,7 +210,10 @@ fun FlyersScreen(navController: NavController) {
                         FlyerRow(
                             flyer = f,
                             colorHex = markets[f.supermarketId]?.colorHex,
-                            onClick = { navController.navigate(Routes.flyerReview(f.id)) }
+                            onClick = { navController.navigate(Routes.flyerReview(f.id)) },
+                            onRejectPending = { vm.rejectPending(f.id) },
+                            onReread = { vm.reread(f.id) },
+                            busy = sync.running
                         )
                     }
                 }
@@ -235,7 +255,14 @@ private fun SyncCard(sync: SyncUi, marketsWithFlyer: Int, onSync: () -> Unit, on
 }
 
 @Composable
-private fun FlyerRow(flyer: FlyerWithMarket, colorHex: String?, onClick: () -> Unit) {
+private fun FlyerRow(
+    flyer: FlyerWithMarket,
+    colorHex: String?,
+    onClick: () -> Unit,
+    onRejectPending: () -> Unit,
+    onReread: () -> Unit,
+    busy: Boolean
+) {
     val failed = flyer.status == FlyerStatus.FAILED
     val ext = MaterialTheme.extended
     val title = FlyerTitle.decode(flyer.sourceUrl)
@@ -287,6 +314,13 @@ private fun FlyerRow(flyer: FlyerWithMarket, colorHex: String?, onClick: () -> U
                 Spacer(Modifier.height(Spacing.sm))
                 Tag("Revisado", container = ext.positiveContainer, content = ext.onPositiveContainer)
             }
+        }
+        Spacer(Modifier.height(Spacing.xs))
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            if (!failed && flyer.pendingCount > 0) {
+                TextButton(onClick = onRejectPending) { Text("Recusar pendentes") }
+            }
+            TextButton(onClick = onReread, enabled = !busy) { Text(if (failed) "Tentar de novo" else "Ler de novo") }
         }
     }
 }

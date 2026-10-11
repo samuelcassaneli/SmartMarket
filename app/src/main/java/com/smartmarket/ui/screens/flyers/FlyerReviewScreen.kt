@@ -61,6 +61,19 @@ import com.smartmarket.ui.components.SearchField
 import com.smartmarket.ui.components.Tag
 import com.smartmarket.ui.theme.Spacing
 import com.smartmarket.ui.theme.extended
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Surface
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.ui.platform.LocalContext
+import com.smartmarket.work.FlyerSyncWorker
 
 /** Revisão das ofertas de um encarte baixado: aceitar, rejeitar ou vincular produto. */
 @Composable
@@ -83,6 +96,12 @@ fun FlyerReviewScreen(flyerId: Long, navController: NavController) {
     val snackbar = remember { SnackbarHostState() }
     var pickerFor by remember { mutableStateOf<OfferUi?>(null) }
     var confirmAll by remember { mutableStateOf(false) }
+    val selected by vm.selected.collectAsStateWithLifecycle()
+    var selectionMode by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var confirmRejectAll by remember { mutableStateOf(false) }
+    var confirmReread by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     LaunchedEffect(Unit) { vm.events.collect { snackbar.showSnackbar(it) } }
 
@@ -96,15 +115,61 @@ fun FlyerReviewScreen(flyerId: Long, navController: NavController) {
                 subtitle = subtitle,
                 onBack = { navController.popBackStack() },
                 actions = {
-                    if (ui.pendingLinked > 0) {
-                        IconButton(onClick = { confirmAll = true }) {
-                            Icon(Icons.Default.DoneAll, contentDescription = "Aceitar todas vinculadas")
+                    if (selectionMode) {
+                        IconButton(onClick = { vm.selectAllVisible() }) {
+                            Icon(Icons.Default.SelectAll, contentDescription = "Selecionar todas as visíveis")
+                        }
+                        IconButton(onClick = { vm.clearSelection(); selectionMode = false }) {
+                            Icon(Icons.Default.Close, contentDescription = "Sair da seleção")
+                        }
+                    } else {
+                        if (ui.pendingLinked > 0) {
+                            IconButton(onClick = { confirmAll = true }) {
+                                Icon(Icons.Default.DoneAll, contentDescription = "Aceitar todas vinculadas")
+                            }
+                        }
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Mais opções")
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Selecionar ofertas") },
+                                    leadingIcon = { Icon(Icons.Default.Checklist, contentDescription = null) },
+                                    onClick = { menuOpen = false; selectionMode = true }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Recusar todas pendentes") },
+                                    leadingIcon = { Icon(Icons.Default.Block, contentDescription = null) },
+                                    onClick = { menuOpen = false; confirmRejectAll = true }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Descartar e ler de novo") },
+                                    leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+                                    onClick = { menuOpen = false; confirmReread = true }
+                                )
+                            }
                         }
                     }
                 }
             )
         },
-        snackbarHost = { SnackbarHost(snackbar) }
+        snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            if (selectionMode) {
+                Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 0.dp) {
+                    Row(
+                        Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = Spacing.screen, vertical = Spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+                    ) {
+                        Text("${selected.size} selecionada(s)", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        OutlinedButton(onClick = { vm.rejectSelected() }, enabled = selected.isNotEmpty()) { Text("Recusar") }
+                        FilledTonalButton(onClick = { vm.acceptSelected() }, enabled = selected.isNotEmpty()) { Text("Aceitar") }
+                    }
+                }
+            }
+        }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -158,6 +223,9 @@ fun FlyerReviewScreen(flyerId: Long, navController: NavController) {
                 else -> items(ui.offers, key = { it.offer.id }) { u ->
                     OfferCard(
                         u = u,
+                        selectionMode = selectionMode,
+                        selected = u.offer.id in selected,
+                        onToggle = { vm.toggleSelect(u) },
                         onAccept = { vm.accept(u) },
                         onReject = { vm.reject(u) },
                         onRestore = { vm.restore(u) },
@@ -183,6 +251,33 @@ fun FlyerReviewScreen(flyerId: Long, navController: NavController) {
         )
     }
 
+    if (confirmRejectAll) {
+        ConfirmDialog(
+            title = "Recusar todas pendentes?",
+            text = "As ${ui.pending} ofertas pendentes deste encarte serão marcadas como recusadas. Dá para restaurar uma a uma depois.",
+            confirmLabel = "Recusar todas",
+            destructive = true,
+            onConfirm = { vm.rejectAllPending() },
+            onDismiss = { confirmRejectAll = false }
+        )
+    }
+
+    if (confirmReread) {
+        ConfirmDialog(
+            title = "Ler este encarte de novo?",
+            text = "A leitura atual será descartada e o encarte será baixado e lido outra vez (com IA, se estiver ligada). " +
+                "Os preços que você já aceitou continuam salvos.",
+            confirmLabel = "Ler de novo",
+            onConfirm = {
+                vm.discardAndReread {
+                    FlyerSyncWorker.runNow(context)
+                    navController.popBackStack()
+                }
+            },
+            onDismiss = { confirmReread = false }
+        )
+    }
+
     if (confirmAll) {
         ConfirmDialog(
             title = "Aceitar ofertas vinculadas",
@@ -205,6 +300,9 @@ private fun Metric(label: String, value: String) {
 @Composable
 private fun OfferCard(
     u: OfferUi,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onToggle: () -> Unit,
     onAccept: () -> Unit,
     onReject: () -> Unit,
     onRestore: () -> Unit,
@@ -213,8 +311,17 @@ private fun OfferCard(
     val ext = MaterialTheme.extended
     val o = u.offer
     val linked = o.productId != null
-    AppCard(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(Spacing.md)) {
+    AppCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = if (selectionMode) onToggle else null,
+        containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        contentPadding = PaddingValues(Spacing.md)
+    ) {
         Row(verticalAlignment = Alignment.Top) {
+            if (selectionMode) {
+                Checkbox(checked = selected, onCheckedChange = { onToggle() })
+                Spacer(Modifier.width(Spacing.xs))
+            }
             Column(Modifier.weight(1f)) {
                 Text(
                     "\"${u.description}\"",
@@ -244,6 +351,7 @@ private fun OfferCard(
             if (u.inMyList) Tag("Na sua lista")
             if (u.note.isNotBlank()) Tag(u.note)
         }
+        if (selectionMode) return@AppCard
         Spacer(Modifier.height(Spacing.sm))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             when (o.status) {

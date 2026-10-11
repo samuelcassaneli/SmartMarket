@@ -17,6 +17,19 @@ object FlyerKind {
     const val PDF_LINK = "PDF_LINK"       // página contém link para um PDF
     const val IMAGE_PAGES = "IMAGE_PAGES" // página contém as páginas do encarte como imagens
     const val ATACADAO_STORE = "ATACADAO_STORE" // página da loja do Atacadão (folhetos em JSON, PDFs públicos)
+    const val AUTO = "AUTO"                     // qualquer site: o app procura PDFs/imagens (e pede ajuda à IA)
+
+    /** Tipo pelo endereço: sites conhecidos têm leitura própria; o resto é automático. */
+    fun detect(url: String): String {
+        val u = url.lowercase()
+        return when {
+            u.isBlank() -> NONE
+            "atacadao.com.br/loja" in u -> ATACADAO_STORE
+            "spani" in u -> PDF_LINK
+            "domatacadista" in u -> IMAGE_PAGES
+            else -> AUTO
+        }
+    }
 }
 
 @Entity(tableName = "supermarkets")

@@ -52,7 +52,7 @@ class FlyerProcessor(
 
     suspend fun syncAll(progress: Progress = Progress { }): List<FlyerSyncResult> {
         val markets = db.supermarketDao().getAllSupermarketsSync()
-            .filter { it.flyerUrl.isNotBlank() && it.flyerKind != FlyerKind.NONE }
+            .filter { it.flyerUrl.isNotBlank() }
         val listProducts = currentListProductIds()
         val results = mutableListOf<FlyerSyncResult>()
         for (m in markets) {
@@ -83,7 +83,16 @@ class FlyerProcessor(
             FlyerKind.ATACADAO_STORE -> FlyerLinkExtractor.atacadaoSources(
                 html, SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date())
             )
-            else -> emptyList()
+            else -> {
+                // qualquer site: formatos conhecidos, PDFs/imagens com cara de encarte e, por último, a IA
+                FlyerLinkExtractor.autoSources(
+                    html, market.flyerUrl, SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date()),
+                    market.city.lowercase(Locale.ROOT)
+                ).ifEmpty {
+                    progress.update("$name: IA procurando os encartes na página")
+                    runCatching { interpreter.findFlyerSources(market.flyerUrl, html) }.getOrDefault(emptyList())
+                }
+            }
         }
         if (sources.isEmpty()) {
             return listOf(recordFailure(market, "sem-encarte-" + today(), market.flyerUrl, null,

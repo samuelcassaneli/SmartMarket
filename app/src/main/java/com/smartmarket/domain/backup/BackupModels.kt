@@ -102,6 +102,17 @@ data class FlyerOfferDto(
     val price: Double, val confidence: Double = 0.0, val status: String = "PENDING"
 )
 
+/** Configurações do app no backup (a chave da IA fica de fora de propósito). */
+@Serializable
+data class SettingsDto(
+    val postalCode: String? = null,
+    val monthlyBudget: Double? = null,
+    val themeMode: String? = null,
+    val checkIntervalDays: Int? = null,
+    val priceAlertsEnabled: Boolean? = null,
+    val aiEnabled: Boolean? = null
+)
+
 /** Arquivo de backup completo. */
 @Serializable
 data class BackupFile(
@@ -121,7 +132,8 @@ data class BackupFile(
     val pantryItems: List<PantryItemDto> = emptyList(),
     val priceAlerts: List<PriceAlertDto> = emptyList(),
     val flyers: List<FlyerDto> = emptyList(),
-    val flyerOffers: List<FlyerOfferDto> = emptyList()
+    val flyerOffers: List<FlyerOfferDto> = emptyList(),
+    val settings: SettingsDto? = null
 ) {
     /** Contagem real das listas (independe do campo [counts] gravado). */
     fun computeCounts(): Map<String, Int> = linkedMapOf(

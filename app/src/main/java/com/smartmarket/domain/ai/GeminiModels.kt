@@ -47,7 +47,8 @@ object GeminiModels {
           "preco":{"type":"NUMBER"},
           "preco_varejo":{"type":"NUMBER","nullable":true},
           "preco_antigo":{"type":"NUMBER","nullable":true},
-          "observacao":{"type":"STRING","nullable":true}
+          "observacao":{"type":"STRING","nullable":true},
+          "pagina":{"type":"INTEGER","nullable":true}
         },"required":["nome","preco"]}}
         """.trimIndent()
     ).jsonObject
@@ -68,6 +69,19 @@ object GeminiModels {
         }
     }
 
+    /** Várias páginas de texto num pedido só (mais rápido); cada oferta informa "pagina". */
+    fun multiPageTextPrompt(pages: List<Pair<Int, List<OcrLine>>>, marketName: String?): String = buildString {
+        append("Páginas de encarte")
+        if (!marketName.isNullOrBlank()) append(" do mercado ").append(marketName)
+        append(". Para cada página, o texto com a posição de cada linha (x,y em pontos, origem no canto superior esquerdo). ")
+        append("Linhas próximas formam o card de um produto. Informe em \"pagina\" o número da página de cada oferta.\n")
+        for ((index, lines) in pages) {
+            append("\n=== Página ").append(index + 1).append(" ===\n")
+            lines.sortedWith(compareBy({ (it.box?.top ?: 0) / 20 }, { it.box?.left ?: 0 }))
+                .forEach { l -> append((l.box?.left ?: 0) / 4).append(',').append((l.box?.top ?: 0) / 4).append(" | ").append(l.text).append('\n') }
+        }
+    }
+
     fun imagePrompt(marketName: String?): String =
         "Imagem de uma página de encarte" + (if (!marketName.isNullOrBlank()) " do mercado $marketName" else "") +
             ". Extraia todos os produtos em oferta com os preços."
@@ -76,7 +90,7 @@ object GeminiModels {
      * Escolhe o melhor modelo "flash" disponível na conta: estável antes de preview/experimental,
      * versão mais nova, e não "lite" quando houver opção (lê melhor), sem modelos de imagem/áudio.
      */
-    fun pickModel(models: List<ModelInfo>): String? {
+    fun pickModel(models: List<ModelInfo>, preferLite: Boolean = false): String? {
         val candidates = models.filter { m ->
             val n = m.name.lowercase()
             "generateContent" in m.methods && n.contains("gemini") && n.contains("flash") &&
@@ -86,8 +100,8 @@ object GeminiModels {
         fun version(n: String): Double = Regex("""gemini-(\d+(?:\.\d+)?)""").find(n)?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0
         return candidates.sortedWith(
             compareBy<ModelInfo> { m -> if (m.name.contains("preview") || m.name.contains("exp")) 1 else 0 }
+                .thenBy { if (it.name.contains("lite") != preferLite) 1 else 0 }
                 .thenByDescending { version(it.name) }
-                .thenBy { if (it.name.contains("lite")) 1 else 0 }
                 .thenBy { it.name.length }
         ).first().name.removePrefix("models/")
     }
@@ -128,9 +142,54 @@ object GeminiModels {
                 retail?.let { "atacado" },
                 obs.takeIf { it.isNotBlank() }
             )
-            ParsedOffer(description = name, price = price, retailPrice = retail, note = notes.joinToString(", "), page = page)
+            val pg = (o["pagina"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull()?.minus(1) ?: page
+            ParsedOffer(description = name, price = price, retailPrice = retail, note = notes.joinToString(", "), page = pg)
         }.distinctBy { it.description.lowercase() + "|" + it.price }
     }
+
+    val LINKS_SCHEMA: JsonObject = json.parseToJsonElement(
+        """{"type":"OBJECT","properties":{"pdfs":{"type":"ARRAY","items":{"type":"STRING"}},"imagens":{"type":"ARRAY","items":{"type":"STRING"}}},"required":["pdfs","imagens"]}"""
+    ).jsonObject
+
+    /** Pede à IA os links dos encartes vigentes entre os links da página. */
+    fun linksPrompt(pageUrl: String, candidates: List<Pair<String, String>>): String = buildString {
+        append("Página de um supermercado: ").append(pageUrl).append('\n')
+        append("Abaixo, os links e imagens da página. Responda com as URLs (exatamente como aparecem) dos encartes/folhetos ")
+        append("de ofertas vigentes: em \"pdfs\" os arquivos PDF de encarte e em \"imagens\" as imagens das páginas do encarte, ")
+        append("na ordem das páginas. Ignore logotipos, banners de categoria, ícones e redes sociais. Se não houver, responda listas vazias.\n\n")
+        candidates.forEach { (url, label) -> append(url).append(" | ").append(label).append('\n') }
+    }
+
+    /** Lê a resposta da escolha de links; aceita só URLs que estavam na página (nada inventado). */
+    fun parseLinks(body: String, allowed: Set<String>): Pair<List<String>, List<String>> {
+        val root = json.parseToJsonElement(body).jsonObject
+        val text = (root["candidates"] as? JsonArray)?.firstOrNull()?.jsonObject
+            ?.get("content")?.jsonObject?.get("parts")?.jsonArray
+            ?.mapNotNull { (it as? JsonObject)?.get("text") as? JsonPrimitive }
+            ?.joinToString("") { it.content } ?: return emptyList<String>() to emptyList()
+        val obj = runCatching { json.parseToJsonElement(text.trim()).jsonObject }.getOrNull() ?: return emptyList<String>() to emptyList()
+        fun list(key: String) = (obj[key] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            .filter { it in allowed }
+            .distinct()
+        return list("pdfs") to list("imagens")
+    }
+
+    /**
+     * Configuração de raciocínio mais rápida aceita por cada família de modelo:
+     * Gemini 3.x usa `thinkingLevel` ("low" é aceito por todos), Gemini 2.5 Flash usa `thinkingBudget` 0.
+     */
+    fun fastThinking(model: String): Pair<String, Any>? {
+        val m = model.lowercase()
+        return when {
+            Regex("""gemini-[3-9]""").containsMatchIn(m) -> "thinkingLevel" to "low"
+            m.contains("gemini-2.5-flash") -> "thinkingBudget" to 0
+            else -> null
+        }
+    }
+
+    /** Tempo pedido pela API para tentar de novo (RetryInfo "23s"), se houver. */
+    fun retryDelaySeconds(body: String): Int? = Regex(""""retryDelay"\s*:\s*"(\d+)(?:\.\d+)?s"""").find(body)?.groupValues?.get(1)?.toIntOrNull()
 
     /** Mensagem de erro amigável a partir da resposta HTTP de erro do Gemini. */
     fun errorMessage(code: Int, body: String): String {

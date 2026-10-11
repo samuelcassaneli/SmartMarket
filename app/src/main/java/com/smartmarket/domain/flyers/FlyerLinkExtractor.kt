@@ -166,4 +166,59 @@ object FlyerLinkExtractor {
             FlyerSource(key = "atacadao-$id", title = name, urls = listOf(url), isPdf = true)
         }.distinctBy { it.key }
     }
+
+    // ------------------------------------------------------------------ Qualquer site
+
+    private val FLYER_HINT = Regex("""encarte|tabloide|tabloid|folheto|oferta|jornal|flyer|lamina|panfleto|promoc""", RegexOption.IGNORE_CASE)
+    private val IMAGE_EXT = Regex("""\.(jpe?g|png|webp)(\?|$)""", RegexOption.IGNORE_CASE)
+
+    /**
+     * Procura encartes numa página qualquer: formatos conhecidos (Atacadão, Dom, Spani) e,
+     * se não houver, PDFs e imagens com cara de encarte (nome/alt com "encarte", "folheto"...).
+     */
+    fun autoSources(html: String, pageUrl: String, todayIso: String, cityHint: String = ""): List<FlyerSource> {
+        runCatching { atacadaoSources(html, todayIso) }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
+        runCatching { domFromNextData(html) }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return domSources(html) }
+        if (html.contains(SPANI_BUCKET)) {
+            spaniSources(html, cityHint.ifBlank { "resende" }).takeIf { it.isNotEmpty() }?.let { return it }
+        }
+        val doc = Jsoup.parse(html, pageUrl)
+        val pdfs = LinkedHashSet<String>()
+        doc.select("a[href], iframe[src], embed[src], object[data]").forEach { el ->
+            val abs = el.absUrl("href").ifBlank { el.absUrl("src") }.ifBlank { el.absUrl("data") }
+            if (abs.lowercase().substringBefore('?').endsWith(".pdf")) pdfs += normalizeUrl(abs)
+        }
+        PDF_IN_TEXT.findAll(html).forEach { pdfs += normalizeUrl(it.value) }
+        if (pdfs.isNotEmpty()) {
+            return pdfs.take(MAX_PDFS).map { FlyerSource(key = it, title = "Encarte", urls = listOf(it), isPdf = true) }
+        }
+        val images = LinkedHashSet<String>()
+        doc.select("img").forEach { el ->
+            val abs = listOf("data-src", "data-lazy-src", "src").map { el.absUrl(it) }.firstOrNull { it.isNotBlank() } ?: return@forEach
+            val context = abs + " " + el.attr("alt") + " " + el.attr("title") + " " + (el.parent()?.className() ?: "")
+            if (IMAGE_EXT.containsMatchIn(abs) && FLYER_HINT.containsMatchIn(context)) images += normalizeUrl(abs)
+        }
+        if (images.isNotEmpty()) {
+            return listOf(FlyerSource(key = "imagens-" + images.first().hashCode(), title = "Encarte", urls = images.take(MAX_IMAGES), isPdf = false))
+        }
+        return emptyList()
+    }
+
+    /** Links e imagens da página, com o texto ao redor, para a IA escolher os encartes. */
+    fun linkCandidates(html: String, pageUrl: String, max: Int = 250): List<Pair<String, String>> {
+        val doc = Jsoup.parse(html, pageUrl)
+        val out = LinkedHashMap<String, String>()
+        doc.select("a[href]").forEach { el ->
+            val abs = el.absUrl("href")
+            if (abs.startsWith("http") && abs !in out) out[abs] = "link: " + el.text().take(80)
+        }
+        doc.select("img").forEach { el ->
+            val abs = listOf("data-src", "data-lazy-src", "src").map { el.absUrl(it) }.firstOrNull { it.startsWith("http") } ?: return@forEach
+            if (abs !in out && IMAGE_EXT.containsMatchIn(abs)) out[abs] = "imagem: " + el.attr("alt").take(80)
+        }
+        return out.entries.take(max).map { it.key to it.value }
+    }
+
+    private const val MAX_PDFS = 5
+    private const val MAX_IMAGES = 40
 }

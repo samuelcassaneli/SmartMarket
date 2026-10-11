@@ -7,6 +7,7 @@ import android.provider.DocumentsContract
 import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import com.smartmarket.data.db.AppDatabase
+import com.smartmarket.data.prefs.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Calendar
@@ -25,7 +26,11 @@ data class BackupSummary(val counts: Map<String, Int>, val exportedAt: Long) {
  * Exporta e importa todas as tabelas do banco em JSON, lendo e escrevendo via
  * Storage Access Framework (qualquer [Uri] do ContentResolver: arquivo local, Drive...).
  */
-class BackupManager(private val context: Context, private val db: AppDatabase) {
+class BackupManager(
+    private val context: Context,
+    private val db: AppDatabase,
+    private val settings: SettingsRepository? = null
+) {
 
     private val resolver get() = context.contentResolver
 
@@ -47,7 +52,17 @@ class BackupManager(private val context: Context, private val db: AppDatabase) {
             pantryItems = db.pantryDao().getAllSync().map { it.toDto() },
             priceAlerts = db.priceAlertDao().getAllSync().map { it.toDto() },
             flyers = readFlyers(),
-            flyerOffers = readFlyerOffers()
+            flyerOffers = readFlyerOffers(),
+            settings = settings?.current()?.let { s ->
+                SettingsDto(
+                    postalCode = s.postalCode,
+                    monthlyBudget = s.monthlyBudget,
+                    themeMode = s.themeMode,
+                    checkIntervalDays = s.checkIntervalDays,
+                    priceAlertsEnabled = s.priceAlertsEnabled,
+                    aiEnabled = s.aiEnabled
+                )
+            }
         )
         file.copy(counts = file.computeCounts())
     }
@@ -75,6 +90,7 @@ class BackupManager(private val context: Context, private val db: AppDatabase) {
         }
         val file = BackupCodec.decode(text)
         restore(file)
+        restoreSettings(file.settings)
         return BackupSummary(file.computeCounts(), file.exportedAt)
     }
 
@@ -104,6 +120,18 @@ class BackupManager(private val context: Context, private val db: AppDatabase) {
                 db.flyerDao().insertOffers(file.flyerOffers.map { it.toEntity() })
             }
         }
+    }
+
+    private suspend fun restoreSettings(dto: SettingsDto?) {
+        val repo = settings ?: return
+        dto ?: return
+        dto.postalCode?.takeIf { it.isNotBlank() }?.let { repo.setPostalCode(it) }
+        dto.monthlyBudget?.let { repo.setMonthlyBudget(it) }
+        dto.themeMode?.let { repo.setThemeMode(it) }
+        dto.checkIntervalDays?.let { repo.setCheckIntervalDays(it) }
+        dto.priceAlertsEnabled?.let { repo.setPriceAlertsEnabled(it) }
+        // a IA só liga de novo se este aparelho já tiver uma chave
+        dto.aiEnabled?.let { if (repo.current().geminiApiKey.isNotBlank()) repo.setAiEnabled(it) }
     }
 
     // ---------------------------------------------------------------- Backup automático (pasta)

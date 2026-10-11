@@ -90,12 +90,18 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.smartmarket.domain.ai.GeminiClient
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.AlertDialog
+import com.smartmarket.data.entity.Supermarket
 
 @Composable
 fun SettingsScreen(navController: NavController) {
     val context = LocalContext.current
     val vm = appViewModel { c -> SettingsViewModel(c.context, c.settings, c.db, c.gemini) }
     val aiChecking by vm.aiChecking.collectAsStateWithLifecycle()
+    val markets by vm.markets.collectAsStateWithLifecycle()
     val settings by vm.state.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -165,12 +171,22 @@ fun SettingsScreen(navController: NavController) {
                 )
             }
 
+            item(key = "links-h") { SectionHeader("Mercados e links de encartes") }
+            item(key = "links") {
+                MarketLinksCard(
+                    markets = markets,
+                    onSave = { m, url -> vm.saveFlyerLink(m, url) },
+                    onAdd = { name, url, city -> vm.addMarketWithLink(name, url, city) }
+                )
+            }
+
             item(key = "ai-h") { SectionHeader("Leitura de encartes com IA") }
             item(key = "ai") {
                 AiCard(
                     settings = s,
                     checking = aiChecking,
                     onToggle = { vm.setAiEnabled(it) },
+                    onFast = { vm.setAiFast(it) },
                     onSaveKey = { vm.saveGeminiKey(it) },
                     onOpenKeyPage = {
                         runCatching {
@@ -320,6 +336,7 @@ private fun AiCard(
     settings: AppSettings,
     checking: Boolean,
     onToggle: (Boolean) -> Unit,
+    onFast: (Boolean) -> Unit,
     onSaveKey: (String) -> Unit,
     onOpenKeyPage: () -> Unit
 ) {
@@ -335,6 +352,17 @@ private fun AiCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Usar IA para ler encartes", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
             Switch(checked = settings.aiEnabled, onCheckedChange = onToggle, enabled = settings.geminiApiKey.isNotBlank())
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Modo rápido", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Usa o Gemini Flash-Lite: lê bem mais rápido, com precisão um pouco menor.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = settings.aiFastMode, onCheckedChange = onFast)
         }
         OutlinedTextField(
             value = key,
@@ -363,6 +391,67 @@ private fun AiCard(
             }
             TextButton(onClick = onOpenKeyPage) { Text("Criar chave grátis") }
         }
+    }
+}
+
+@Composable
+private fun MarketLinksCard(
+    markets: List<Supermarket>,
+    onSave: (Supermarket, String) -> Unit,
+    onAdd: (name: String, url: String, city: String) -> Unit
+) {
+    var adding by rememberSaveable { mutableStateOf(false) }
+    SettingsCard(
+        Icons.Filled.Link,
+        "Onde buscar os encartes",
+        "Cole o link da página de encartes da loja de cada mercado (ex.: atacadao.com.br/loja/sua-cidade ou a página " +
+            "de ofertas do site). O app baixa e lê sozinho; em sites desconhecidos a IA ajuda a achar os encartes."
+    ) {
+        markets.forEach { m ->
+            var link by rememberSaveable(m.id, m.flyerUrl) { mutableStateOf(m.flyerUrl) }
+            OutlinedTextField(
+                value = link,
+                onValueChange = { link = it.trim() },
+                label = { Text(m.name) },
+                placeholder = { Text("https://…") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                trailingIcon = {
+                    if (link != m.flyerUrl) {
+                        IconButton(onClick = { onSave(m, link) }) { Icon(Icons.Filled.Check, contentDescription = "Salvar link") }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.sm)
+            )
+        }
+        TextButton(onClick = { adding = true }) {
+            Icon(Icons.Filled.Add, contentDescription = null)
+            Spacer(Modifier.width(Spacing.xs))
+            Text("Adicionar mercado por link")
+        }
+    }
+    if (adding) {
+        var name by rememberSaveable { mutableStateOf("") }
+        var city by rememberSaveable { mutableStateOf("") }
+        var url by rememberSaveable { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { adding = false },
+            title = { Text("Novo mercado") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    OutlinedTextField(name, { name = it }, label = { Text("Nome") }, singleLine = true)
+                    OutlinedTextField(city, { city = it }, label = { Text("Cidade") }, singleLine = true)
+                    OutlinedTextField(
+                        url, { url = it.trim() }, label = { Text("Link dos encartes") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = name.isNotBlank(), onClick = { onAdd(name, url, city); adding = false }) { Text("Adicionar") }
+            },
+            dismissButton = { TextButton(onClick = { adding = false }) { Text("Cancelar") } }
+        )
     }
 }
 

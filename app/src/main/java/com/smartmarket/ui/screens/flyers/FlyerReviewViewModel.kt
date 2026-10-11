@@ -188,4 +188,69 @@ class FlyerReviewViewModel(
             _events.send(if (targets.size == 1) "1 preço salvo" else "${targets.size} preços salvos")
         }
     }
+
+    // ---- Seleção em lote
+
+    private val _selected = MutableStateFlow<Set<Long>>(emptySet())
+    val selected = _selected.asStateFlow()
+
+    fun toggleSelect(u: OfferUi) {
+        _selected.value = _selected.value.let { if (u.offer.id in it) it - u.offer.id else it + u.offer.id }
+    }
+
+    fun selectAllVisible() {
+        _selected.value = ui.value.offers.map { it.offer.id }.toSet()
+    }
+
+    fun clearSelection() { _selected.value = emptySet() }
+
+    fun rejectSelected() {
+        val ids = _selected.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            flyerDao.setStatus(ids, OfferStatus.REJECTED)
+            _selected.value = emptySet()
+            _events.send(if (ids.size == 1) "1 oferta recusada" else "${ids.size} ofertas recusadas")
+        }
+    }
+
+    /** Aceita as selecionadas que têm produto vinculado. */
+    fun acceptSelected() {
+        val ids = _selected.value
+        viewModelScope.launch {
+            val targets = allOffers.value.orEmpty().filter { it.offer.id in ids && it.offer.productId != null }
+            if (targets.isEmpty()) {
+                _events.send("Nenhuma das selecionadas tem produto vinculado")
+                return@launch
+            }
+            val observedAt = flyer.value?.fetchedAt ?: System.currentTimeMillis()
+            priceRepository.recordPrices(targets.map {
+                PriceEntry(it.offer.productId!!, it.offer.supermarketId, it.offer.price, PriceSource.FLYER, observedAt, it.note)
+            })
+            targets.forEach {
+                matcher.learn(it.description, it.offer.productId!!, PriceSource.FLYER)
+                flyerDao.updateOffer(it.offer.id, OfferStatus.ACCEPTED, it.offer.productId)
+            }
+            _selected.value = emptySet()
+            val skipped = ids.size - targets.size
+            _events.send("${targets.size} preço(s) salvo(s)" + if (skipped > 0) "; $skipped sem vínculo ficaram pendentes" else "")
+        }
+    }
+
+    // ---- Encarte inteiro
+
+    fun rejectAllPending() {
+        viewModelScope.launch {
+            val n = flyerDao.rejectPending(flyerId)
+            _events.send(if (n == 0) "Não havia ofertas pendentes" else "$n ofertas recusadas")
+        }
+    }
+
+    /** Descarta esta leitura (ofertas aceitas continuam salvas nos preços) e pede uma nova leitura. */
+    fun discardAndReread(onDone: () -> Unit) {
+        viewModelScope.launch {
+            flyerDao.deleteFlyer(flyerId)
+            onDone()
+        }
+    }
 }

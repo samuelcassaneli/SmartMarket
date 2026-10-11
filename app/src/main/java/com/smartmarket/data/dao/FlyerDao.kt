@@ -50,4 +50,14 @@ interface FlyerDao {
 
     @Query("SELECT * FROM flyer_offers WHERE flyerId = :flyerId")
     suspend fun getOffersForFlyerSync(flyerId: Long): List<FlyerOffer>
+
+    @Query("UPDATE flyer_offers SET status = 'REJECTED' WHERE flyerId = :flyerId AND status = 'PENDING'")
+    suspend fun rejectPending(flyerId: Long): Int
+
+    @Query("UPDATE flyer_offers SET status = :status WHERE id IN (:ids)")
+    suspend fun setStatus(ids: List<Long>, status: String)
+
+    /** Apaga o encarte e as ofertas (cascata); a próxima busca lê de novo. Preços já aceitos ficam. */
+    @Query("DELETE FROM flyers WHERE id = :flyerId")
+    suspend fun deleteFlyer(flyerId: Long)
 }
