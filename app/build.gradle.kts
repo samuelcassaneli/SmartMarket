@@ -56,6 +56,11 @@ android {
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.all {
+            if (project.hasProperty("dump")) it.systemProperty("dump", "1")
+            if (project.hasProperty("pdfs")) it.systemProperty("pdfs", project.property("pdfs").toString())
+            it.testLogging.showStandardStreams = project.hasProperty("dump")
+        }
     }
 }
 
@@ -102,11 +107,15 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.coil.compose)
 
+    // Texto embutido de PDFs de encarte (mais preciso que OCR)
+    implementation(libs.pdfbox.android)
+
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.pdfbox.desktop)
 
     debugImplementation(libs.androidx.ui.tooling)
 }

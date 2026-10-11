@@ -82,11 +82,20 @@ import com.smartmarket.ui.theme.Spacing
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.smartmarket.domain.ai.GeminiClient
 
 @Composable
 fun SettingsScreen(navController: NavController) {
     val context = LocalContext.current
-    val vm = appViewModel { c -> SettingsViewModel(c.context, c.settings, c.db) }
+    val vm = appViewModel { c -> SettingsViewModel(c.context, c.settings, c.db, c.gemini) }
+    val aiChecking by vm.aiChecking.collectAsStateWithLifecycle()
     val settings by vm.state.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -142,11 +151,41 @@ fun SettingsScreen(navController: NavController) {
             item(key = "theme-h") { SectionHeader("Aparência") }
             item(key = "theme") { ThemeCard(s.themeMode, onChange = { vm.setTheme(it) }) }
 
+            item(key = "check-h") { SectionHeader("Verificação de promoções") }
+            item(key = "check") {
+                PriceCheckCard(
+                    intervalDays = s.checkIntervalDays,
+                    onInterval = { days ->
+                        vm.setCheckInterval(days)
+                        if (days > 0 && Build.VERSION.SDK_INT >= 33 && !hasNotificationPermission(context)) {
+                            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    },
+                    onCheckNow = { vm.checkNow() }
+                )
+            }
+
+            item(key = "ai-h") { SectionHeader("Leitura de encartes com IA") }
+            item(key = "ai") {
+                AiCard(
+                    settings = s,
+                    checking = aiChecking,
+                    onToggle = { vm.setAiEnabled(it) },
+                    onSaveKey = { vm.saveGeminiKey(it) },
+                    onOpenKeyPage = {
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(GeminiClient.KEY_PAGE_URL))
+                            )
+                        }
+                    }
+                )
+            }
+
             item(key = "auto-h") { SectionHeader("Automação") }
             item(key = "auto") {
                 AutomationCard(
                     settings = s,
-                    onFlyers = { vm.setFlyerAutoSync(it) },
                     onAlerts = { on ->
                         vm.setPriceAlerts(on)
                         if (on && Build.VERSION.SDK_INT >= 33 && !hasNotificationPermission(context)) {
@@ -256,23 +295,86 @@ private fun ThemeCard(current: String, onChange: (String) -> Unit) {
     }
 }
 
+private val INTERVALS = listOf(0 to "Desligada", 1 to "Diária", 3 to "3 dias", 7 to "Semanal", 15 to "15 dias")
+
+@Composable
+private fun PriceCheckCard(intervalDays: Int, onInterval: (Int) -> Unit, onCheckNow: () -> Unit) {
+    SettingsCard(
+        Icons.Outlined.Newspaper,
+        "Frequência",
+        "Baixa os encartes novos, consulta os sites dos mercados e avisa (com pop-up) quando algo que você " +
+            "compra ficou mais barato que na última compra ou na última verificação."
+    ) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            INTERVALS.forEach { (days, label) ->
+                FilterChip(selected = intervalDays == days, onClick = { onInterval(days) }, label = { Text(label) })
+            }
+        }
+        Spacer(Modifier.height(Spacing.sm))
+        FilledTonalButton(onClick = onCheckNow) { Text("Verificar agora") }
+    }
+}
+
+@Composable
+private fun AiCard(
+    settings: AppSettings,
+    checking: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onSaveKey: (String) -> Unit,
+    onOpenKeyPage: () -> Unit
+) {
+    var key by rememberSaveable(settings.geminiApiKey) { mutableStateOf(settings.geminiApiKey) }
+    var visible by rememberSaveable { mutableStateOf(false) }
+    SettingsCard(
+        Icons.Filled.AutoAwesome,
+        "Gemini (Google), grátis",
+        "A IA lê cada página do encarte como uma pessoa leria: nome completo, preço normal e as condições " +
+            "(app, cartão, atacado). Use uma chave gratuita do Google AI Studio; na camada gratuita não há cobrança. " +
+            "Se a cota do dia acabar, o app usa a leitura local."
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Usar IA para ler encartes", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            Switch(checked = settings.aiEnabled, onCheckedChange = onToggle, enabled = settings.geminiApiKey.isNotBlank())
+        }
+        OutlinedTextField(
+            value = key,
+            onValueChange = { key = it.trim() },
+            label = { Text("Chave da API (AIza…)") },
+            singleLine = true,
+            visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { visible = !visible }) {
+                    Icon(if (visible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, contentDescription = "Mostrar chave")
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (settings.geminiModel.isNotBlank() && key == settings.geminiApiKey) {
+            Text(
+                "Modelo em uso: ${settings.geminiModel}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(Modifier.height(Spacing.sm))
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            FilledTonalButton(onClick = { onSaveKey(key) }, enabled = !checking) {
+                Text(if (checking) "Validando…" else "Salvar e validar")
+            }
+            TextButton(onClick = onOpenKeyPage) { Text("Criar chave grátis") }
+        }
+    }
+}
+
 @Composable
 private fun AutomationCard(
     settings: AppSettings,
-    onFlyers: (Boolean) -> Unit,
     onAlerts: (Boolean) -> Unit,
     onAutoBackup: (Boolean) -> Unit,
     onChangeFolder: () -> Unit,
     onBackupNow: () -> Unit
 ) {
     AppCard(Modifier.fillMaxWidth(), contentPadding = PaddingValues(vertical = Spacing.sm)) {
-        ToggleRow(
-            icon = Icons.Outlined.Newspaper,
-            title = "Buscar encartes automaticamente",
-            subtitle = "Uma vez por dia, com internet, baixa os encartes dos mercados e lê as ofertas",
-            checked = settings.flyerAutoSync,
-            onChange = onFlyers
-        )
         ToggleRow(
             icon = Icons.Filled.NotificationsActive,
             title = "Alertas de preço",

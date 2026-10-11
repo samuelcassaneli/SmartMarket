@@ -100,4 +100,19 @@ interface PurchaseDao {
 
     @Query("SELECT * FROM purchase_items")
     suspend fun getAllItemsSync(): List<PurchaseItem>
+
+    /** Preços pagos por produto (mais recentes primeiro). */
+    @Query("""
+        SELECT pi.productId AS productId, pi.unitPrice AS price, pu.issuedAt AS at
+        FROM purchase_items pi INNER JOIN purchases pu ON pu.id = pi.purchaseId
+        WHERE pi.productId IS NOT NULL AND pi.unitPrice > 0
+        ORDER BY pu.issuedAt DESC
+    """)
+    suspend fun getPaidPrices(): List<PaidPrice>
+
+    @Query("""
+        SELECT DISTINCT pi.productId FROM purchase_items pi INNER JOIN purchases pu ON pu.id = pi.purchaseId
+        WHERE pi.productId IS NOT NULL AND pu.issuedAt >= :since
+    """)
+    suspend fun getProductsBoughtSince(since: Long): List<Long>
 }

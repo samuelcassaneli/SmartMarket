@@ -23,10 +23,10 @@ object BackgroundJobs {
         val app = context.applicationContext as SmartMarketApplication
         scope.launch {
             app.container.settings.settings
-                .map { Triple(it.flyerAutoSync, it.priceAlertsEnabled, it.autoBackupEnabled && it.autoBackupTreeUri.isNotEmpty()) }
+                .map { Triple(it.checkIntervalDays, it.priceAlertsEnabled, it.autoBackupEnabled && it.autoBackupTreeUri.isNotEmpty()) }
                 .distinctUntilChanged()
-                .collect { (flyers, alerts, backup) ->
-                    FlyerSyncWorker.schedule(app, flyers)
+                .collect { (intervalDays, alerts, backup) ->
+                    FlyerSyncWorker.schedule(app, intervalDays)
                     PriceAlertWorker.schedule(app, alerts)
                     AutoBackupWorker.schedule(app, backup)
                 }

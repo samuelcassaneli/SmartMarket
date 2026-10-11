@@ -81,7 +81,7 @@ import java.io.File
 @Composable
 fun FlyerScanScreen(navController: NavController) {
     val vm = appViewModel { c ->
-        FlyerScanViewModel(c.ocrProcessor, c.productMatcher, c.priceRepository, c.db.productDao(), c.db.supermarketDao())
+        FlyerScanViewModel(c.ocrProcessor, c.productMatcher, c.priceRepository, c.db.productDao(), c.db.supermarketDao(), c.flyerInterpreter)
     }
     val context = LocalContext.current
     val markets by vm.markets.collectAsStateWithLifecycle()

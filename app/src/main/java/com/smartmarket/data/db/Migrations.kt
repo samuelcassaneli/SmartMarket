@@ -13,7 +13,18 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(MIGRATION_2_3)
+    /** v3 para v4: só dados. Liga os folhetos da página da loja do Atacadão de Resende. */
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "UPDATE `supermarkets` SET `flyerUrl` = ?, `flyerKind` = 'ATACADAO_STORE' " +
+                    "WHERE `onlineSource` = 'VTEX_ATACADAO' AND `flyerUrl` = ''",
+                arrayOf<Any>(Seed.ATACADAO_RESENDE_URL)
+            )
+        }
+    }
+
+    val ALL = arrayOf(MIGRATION_2_3, MIGRATION_3_4)
 
     // Derivado de app/schemas/.../2.json e 3.json; o schema resultante foi conferido contra o 3.json.
     // As duas últimas instruções preenchem dados: data de criação e histórico a partir dos preços mensais.

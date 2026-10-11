@@ -155,3 +155,6 @@ data class FlyerWithMarket(
     val status: String,
     val errorMessage: String
 )
+
+/** Preço pago num item de nota. */
+data class PaidPrice(val productId: Long, val price: Double, val at: Long)

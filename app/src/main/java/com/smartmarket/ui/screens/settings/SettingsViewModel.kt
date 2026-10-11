@@ -11,6 +11,7 @@ import com.smartmarket.data.prefs.SettingsRepository
 import com.smartmarket.domain.backup.BackupFormatException
 import com.smartmarket.domain.backup.BackupManager
 import com.smartmarket.work.AutoBackupWorker
+import com.smartmarket.domain.ai.GeminiClient
 import com.smartmarket.work.FlyerSyncWorker
 import com.smartmarket.work.PriceAlertWorker
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -33,7 +34,8 @@ import kotlinx.coroutines.launch
 class SettingsViewModel(
     private val appContext: Context,
     private val settings: SettingsRepository,
-    db: AppDatabase
+    db: AppDatabase,
+    private val gemini: GeminiClient
 ) : ViewModel() {
 
     private val backup = BackupManager(appContext, db)
@@ -59,9 +61,45 @@ class SettingsViewModel(
 
     fun setTheme(mode: String) = viewModelScope.launch { settings.setThemeMode(mode) }
 
-    fun setFlyerAutoSync(enabled: Boolean) = viewModelScope.launch {
-        settings.setFlyerAutoSync(enabled)
-        FlyerSyncWorker.schedule(appContext, enabled)
+    /** Frequência da verificação de encartes e preços (0 = desligada). */
+    fun setCheckInterval(days: Int) = viewModelScope.launch {
+        settings.setCheckIntervalDays(days)
+        FlyerSyncWorker.schedule(appContext, days)
+        _messages.tryEmit(if (days > 0) "Verificação agendada" else "Verificação automática desligada")
+    }
+
+    fun checkNow() {
+        FlyerSyncWorker.runNow(appContext)
+        _messages.tryEmit("Verificando encartes e preços em segundo plano…")
+    }
+
+    // ---- Leitura com IA
+
+    private val _aiChecking = MutableStateFlow(false)
+    val aiChecking: StateFlow<Boolean> = _aiChecking.asStateFlow()
+
+    fun setAiEnabled(enabled: Boolean) = viewModelScope.launch { settings.setAiEnabled(enabled) }
+
+    /** Valida a chave listando os modelos e guarda o melhor "flash" disponível. */
+    fun saveGeminiKey(key: String) = viewModelScope.launch {
+        val k = key.trim()
+        if (k.isEmpty()) {
+            settings.setGemini("", "")
+            settings.setAiEnabled(false)
+            _messages.tryEmit("Chave removida")
+            return@launch
+        }
+        _aiChecking.value = true
+        try {
+            val model = gemini.discoverModel(k)
+            settings.setGemini(k, model)
+            settings.setAiEnabled(true)
+            _messages.tryEmit("Chave válida. Modelo: $model")
+        } catch (e: Exception) {
+            _messages.tryEmit(e.message ?: "Não foi possível validar a chave")
+        } finally {
+            _aiChecking.value = false
+        }
     }
 
     fun setPriceAlerts(enabled: Boolean) = viewModelScope.launch {

@@ -8,7 +8,6 @@ import com.smartmarket.data.entity.FlyerStatus
 import com.smartmarket.data.entity.OfferStatus
 import com.smartmarket.data.entity.Supermarket
 import com.smartmarket.domain.matching.ProductMatcher
-import com.smartmarket.domain.ocr.EncarteParser
 import com.smartmarket.domain.ocr.OcrPage
 import com.smartmarket.domain.ocr.OcrProcessor
 import kotlinx.coroutines.CancellationException
@@ -43,7 +42,8 @@ class FlyerProcessor(
     private val db: AppDatabase,
     private val downloader: FlyerDownloader,
     private val ocr: OcrProcessor,
-    private val matcher: ProductMatcher
+    private val matcher: ProductMatcher,
+    private val interpreter: FlyerInterpreter
 ) {
     private val flyerDao = db.flyerDao()
 
@@ -80,6 +80,9 @@ class FlyerProcessor(
                 }
             }
             FlyerKind.IMAGE_PAGES -> FlyerLinkExtractor.domSources(html)
+            FlyerKind.ATACADAO_STORE -> FlyerLinkExtractor.atacadaoSources(
+                html, SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date())
+            )
             else -> emptyList()
         }
         if (sources.isEmpty()) {
@@ -130,7 +133,9 @@ class FlyerProcessor(
                 }
             }
 
-            val parsed = EncarteParser.parse(pages, marketNames = listOf(market.name))
+            val parsed = interpreter.interpret(pages, market.name) { cur, total, ai ->
+                progress.update("$name: " + (if (ai) "IA lendo" else "separando ofertas da") + " página $cur de $total")
+            }.offers
             val matched = matchOffers(parsed, matcher)
             val existing = flyerDao.findByHash(market.id, hash)
             val now = System.currentTimeMillis()
@@ -206,7 +211,8 @@ class FlyerProcessor(
     }
 
     private fun sourceUrlOf(market: Supermarket, src: FlyerSource): String =
-        if (src.isPdf) src.urls.first() else FlyerTitle.encode(market.flyerUrl, src.title)
+        if (src.isPdf && market.flyerKind != FlyerKind.ATACADAO_STORE) src.urls.first()
+        else FlyerTitle.encode(if (src.isPdf) src.urls.first() else market.flyerUrl, src.title)
 
     private fun resolve(base: String, link: String): String =
         if (link.startsWith("http")) link else base.toHttpUrlOrNull()?.resolve(link)?.toString() ?: link

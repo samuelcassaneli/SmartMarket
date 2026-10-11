@@ -27,6 +27,7 @@ object Routes {
     const val MARKETS = "markets"
     const val PANTRY = "pantry"
     const val SETTINGS = "settings"
+    const val DEALS = "deals"
 
     fun scanQr(gallery: Boolean = false) = "scan/qr?gallery=$gallery"
     fun search(query: String = "") = "search?q=${Uri.encode(query)}"

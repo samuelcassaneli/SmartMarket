@@ -27,10 +27,20 @@ Stack: Kotlin, Jetpack Compose (Material 3), Room, ML Kit (on-device), CameraX, 
 - Cada oferta mostra o preço por kg, L ou unidade e tem as ações "Salvar preço" e "Adicionar à lista".
 
 ### Encartes
-- Sincronização diária automática, com notificação quando sai encarte novo e quantos itens são da sua lista.
-- A leitura automática filtra textos de enfeite e não confunde variantes ("leite condensado" não vira "leite integral").
-- Você revisa as ofertas, aceita ou rejeita, e vincula os itens que não foram reconhecidos.
-- Também dá para ler um encarte manualmente, por foto ou PDF.
+- Busca automática dos encartes do **Spani** (PDF), do **Dom Atacadista** (páginas em imagem) e do **Atacadão Resende** (folhetos da página da loja).
+- Nos PDFs, o app usa o texto que vem dentro do arquivo, sem OCR, então os nomes saem exatos. No Atacadão:
+  - o preço registrado é o normal;
+  - o preço antigo ("de"), o preço no app e o preço app + cartão ficam na observação.
+- Nas imagens o app usa OCR e filtra o lixo da leitura: rótulos, títulos de seção e palavras lidas erradas ("Uiidades").
+- **Leitura com IA (opcional e gratuita):** com uma chave do Google AI Studio, o Gemini lê cada página como uma pessoa leria.
+  - As regras de extração ficam fixas no app.
+  - Se a cota grátis acabar, o app volta para a leitura local.
+- Você revisa as ofertas, aceita ou rejeita, e vincula os itens que não foram reconhecidos. Também dá para ler um encarte manualmente, por foto ou PDF.
+
+### Verificação de promoções
+- Roda na frequência que você escolher: diária, a cada 3 dias, semanal (padrão) ou quinzenal.
+- Baixa os encartes novos, consulta nos sites dos mercados os produtos que você compra e compara com a sua última compra (ou com a última verificação).
+- Quando algo ficou mais barato, avisa com notificação em destaque e pop-up no app. Exemplo: "Amaciante: R$ 29,90 → R$ 20,99 (Spani)". A lista completa fica na tela Promoções.
 
 ### Listas inteligentes
 - Comparação da lista entre todos os mercados, com itens faltando, variação contra o mês anterior e economia.

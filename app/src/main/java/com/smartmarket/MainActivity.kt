@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
         return when {
             productId > 0 -> Routes.productDetail(productId)
             intent.getStringExtra(FlyerSyncWorker.EXTRA_OPEN) == "flyers" -> Routes.FLYERS
+            intent.getStringExtra(FlyerSyncWorker.EXTRA_OPEN) == "deals" -> Routes.DEALS
             else -> null
         }
     }

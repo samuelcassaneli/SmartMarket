@@ -82,6 +82,11 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.smartmarket.ui.LocalAppContainer
+import com.smartmarket.domain.deals.DealDetector
 
 @Composable
 fun HomeScreen(navController: NavController) {
@@ -92,6 +97,25 @@ fun HomeScreen(navController: NavController) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val greeting = remember { greeting() }
     val today = remember { todayLabel() }
+    val container = LocalAppContainer.current
+    val dealReport by container.dealReports.report.collectAsStateWithLifecycle()
+    var showDealsPopup by remember { mutableStateOf(true) }
+    val unseenDeals = dealReport?.takeIf { !it.seen && it.deals.isNotEmpty() }
+    if (unseenDeals != null && showDealsPopup) {
+        val (title, lines) = DealDetector.notificationLines(unseenDeals.deals, max = 4)
+        AlertDialog(
+            onDismissRequest = { showDealsPopup = false; container.dealReports.markSeen() },
+            icon = { Icon(Icons.Filled.LocalOffer, contentDescription = null) },
+            title = { Text(title) },
+            text = { Text(lines.joinToString("\n")) },
+            confirmButton = {
+                TextButton(onClick = { showDealsPopup = false; navController.navigate(Routes.DEALS) }) { Text("Ver promoções") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDealsPopup = false; container.dealReports.markSeen() }) { Text("Depois") }
+            }
+        )
+    }
 
     ScreenScaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -131,6 +155,29 @@ fun HomeScreen(navController: NavController) {
                     onNewList = { navController.navigate(Routes.LISTS) },
                     onSearch = { navController.navigate(Routes.search()) }
                 )
+            }
+            val deals = dealReport?.deals.orEmpty()
+            if (deals.isNotEmpty()) {
+                item(key = "deals") {
+                    AppCard(
+                        Modifier.fillMaxWidth(),
+                        onClick = { navController.navigate(Routes.DEALS) },
+                        containerColor = MaterialTheme.extended.positiveContainer
+                    ) {
+                        Text(
+                            "${deals.size} produto(s) mais barato(s) que antes",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.extended.onPositiveContainer
+                        )
+                        Text(
+                            deals.take(2).joinToString("\n") { d ->
+                                "${d.productName}: ${Fmt.money(d.oldPrice)} → ${Fmt.money(d.newPrice)} (${d.marketName})"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.extended.onPositiveContainer
+                        )
+                    }
+                }
             }
             if (state.pendingOffers > 0) {
                 item(key = "offers") {

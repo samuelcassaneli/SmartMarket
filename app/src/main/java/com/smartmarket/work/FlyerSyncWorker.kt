@@ -28,6 +28,9 @@ import com.smartmarket.SmartMarketApplication
 import com.smartmarket.domain.flyers.FlyerDownloader
 import com.smartmarket.domain.flyers.FlyerProcessor
 import com.smartmarket.domain.flyers.FlyerSyncResult
+import com.smartmarket.domain.deals.DealDetector
+import com.smartmarket.domain.deals.DealReport
+import com.smartmarket.domain.deals.PriceCheckRunner
 import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
@@ -43,7 +46,8 @@ class FlyerSyncWorker(appContext: Context, params: WorkerParameters) : Coroutine
             db = container.db,
             downloader = FlyerDownloader(container.httpClient, applicationContext.cacheDir),
             ocr = container.ocrProcessor,
-            matcher = container.productMatcher
+            matcher = container.productMatcher,
+            interpreter = container.flyerInterpreter
         )
         return try {
             setProgress(workDataOf(KEY_PROGRESS to "Procurando encartes…"))
@@ -52,6 +56,14 @@ class FlyerSyncWorker(appContext: Context, params: WorkerParameters) : Coroutine
                 setProgressAsync(workDataOf(KEY_PROGRESS to msg))
             }
             notifyResults(results)
+            // verificação de preços: encartes novos + sites dos mercados x última compra
+            val report = runCatching {
+                PriceCheckRunner(container).run(results) { msg -> setProgressAsync(workDataOf(KEY_PROGRESS to msg)) }
+            }.getOrNull()
+            if (report != null) {
+                container.dealReports.save(report)
+                notifyDeals(report)
+            }
             val newCount = results.count { it.isNew }
             val failed = results.count { it.error != null }
             Result.success(
@@ -125,8 +137,55 @@ class FlyerSyncWorker(appContext: Context, params: WorkerParameters) : Coroutine
         }
     }
 
+    /** Notificação em destaque (pop-up) com os produtos que ficaram mais baratos. */
+    private fun notifyDeals(report: DealReport) {
+        if (report.deals.isEmpty()) return
+        val ctx = applicationContext
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        ensureDealsChannel(ctx)
+        val intent = Intent(ctx, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_OPEN, "deals")
+        }
+        val pending = PendingIntent.getActivity(
+            ctx, 4301, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val (title, lines) = DealDetector.notificationLines(report.deals)
+        val style = NotificationCompat.InboxStyle().setBigContentTitle(title)
+        lines.forEach { style.addLine(it) }
+        if (report.deals.size > lines.size) style.setSummaryText("+${report.deals.size - lines.size} na tela Promoções")
+        val notification = NotificationCompat.Builder(ctx, DEALS_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(lines.firstOrNull() ?: "")
+            .setStyle(style)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .build()
+        runCatching { NotificationManagerCompat.from(ctx).notify(DEALS_NOTIFICATION_ID, notification) }
+    }
+
     companion object {
         const val UNIQUE_PERIODIC = "flyer-sync-periodic"
+        const val DEALS_CHANNEL_ID = "promocoes"
+        private const val DEALS_NOTIFICATION_ID = 4300
+
+        /** Canal de alta importância: aparece como pop-up (heads-up). */
+        fun ensureDealsChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val nm = context.getSystemService(NotificationManager::class.java) ?: return
+            if (nm.getNotificationChannel(DEALS_CHANNEL_ID) != null) return
+            nm.createNotificationChannel(
+                NotificationChannel(DEALS_CHANNEL_ID, "Promoções", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Produtos que você compra e ficaram mais baratos"
+                }
+            )
+        }
         const val UNIQUE_NOW = "flyer-sync-now"
         const val CHANNEL_ID = "encartes"
         const val KEY_PROGRESS = "progress"
@@ -149,10 +208,12 @@ class FlyerSyncWorker(appContext: Context, params: WorkerParameters) : Coroutine
             )
         }
 
-        /** Agenda (ou cancela) a busca diária de encartes. */
-        fun schedule(context: Context, enabled: Boolean) {
+        /**
+         * Agenda (ou cancela, com 0) a verificação periódica de encartes e preços a cada [intervalDays] dias.
+         */
+        fun schedule(context: Context, intervalDays: Int) {
             val wm = WorkManager.getInstance(context)
-            if (!enabled) {
+            if (intervalDays <= 0) {
                 wm.cancelUniqueWork(UNIQUE_PERIODIC)
                 return
             }
@@ -160,12 +221,14 @@ class FlyerSyncWorker(appContext: Context, params: WorkerParameters) : Coroutine
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .setRequiresBatteryNotLow(true)
                 .build()
-            val request = PeriodicWorkRequestBuilder<FlyerSyncWorker>(24, TimeUnit.HOURS)
+            val request = PeriodicWorkRequestBuilder<FlyerSyncWorker>(intervalDays.toLong(), TimeUnit.DAYS)
                 .setConstraints(constraints)
                 .setInitialDelay(1, TimeUnit.HOURS)
                 .addTag(UNIQUE_PERIODIC)
+                .addTag("interval-$intervalDays")
                 .build()
-            wm.enqueueUniquePeriodicWork(UNIQUE_PERIODIC, ExistingPeriodicWorkPolicy.KEEP, request)
+            // UPDATE troca o intervalo sem perder o agendamento
+            wm.enqueueUniquePeriodicWork(UNIQUE_PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
         }
 
         /** Busca agora (expedited; se a cota acabar, roda como trabalho normal). */

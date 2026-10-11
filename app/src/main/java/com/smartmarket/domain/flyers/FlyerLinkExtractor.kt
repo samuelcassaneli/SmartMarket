@@ -142,4 +142,28 @@ object FlyerLinkExtractor {
         YEAR_MONTH.find(url)?.let { it.groupValues[1].toInt() * 100 + it.groupValues[2].toInt() }
 
     private fun latestYearMonth(urls: List<String>): Int? = urls.mapNotNull { yearMonthOf(it) }.maxOrNull()
+
+    // ------------------------------------------------------------------ Atacadão
+
+    /**
+     * Folhetos da página da loja do Atacadão (Next.js): `storeInfo.flyers[]` com nome, validade e
+     * `urlFinalDocument` (PDF público). Ignora os vencidos em relação a [todayIso] ("AAAA-MM-DD").
+     */
+    fun atacadaoSources(html: String, todayIso: String): List<FlyerSource> {
+        val data = Jsoup.parse(html).selectFirst("script#__NEXT_DATA__")?.data()?.takeIf { it.isNotBlank() }
+            ?: return emptyList()
+        val flyers = findArray(json.parseToJsonElement(data), "flyers") ?: return emptyList()
+        return flyers.mapNotNull { el ->
+            val obj = el as? JsonObject ?: return@mapNotNull null
+            if ((obj["exclude"] as? JsonPrimitive)?.contentOrNull == "true") return@mapNotNull null
+            val id = (obj["id"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+            val url = (obj["urlFinalDocument"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.startsWith("http") }
+                ?: return@mapNotNull null
+            val validity = obj["validity"] as? JsonObject
+            val finalDate = (validity?.get("final") as? JsonPrimitive)?.contentOrNull?.take(10)
+            if (finalDate != null && finalDate < todayIso) return@mapNotNull null
+            val name = (obj["name"] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty().ifBlank { "Folheto" }
+            FlyerSource(key = "atacadao-$id", title = name, urls = listOf(url), isPdf = true)
+        }.distinctBy { it.key }
+    }
 }

@@ -47,4 +47,7 @@ interface FlyerDao {
 
     @Query("SELECT COUNT(*) FROM flyer_offers WHERE status = 'PENDING'")
     fun observePendingCount(): Flow<Int>
+
+    @Query("SELECT * FROM flyer_offers WHERE flyerId = :flyerId")
+    suspend fun getOffersForFlyerSync(flyerId: Long): List<FlyerOffer>
 }

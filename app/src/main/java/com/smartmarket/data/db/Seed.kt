@@ -9,6 +9,8 @@ import com.smartmarket.data.entity.OnlineSource
 /** Dados iniciais, gravados direto em SQL para poder rodar em onCreate e nas migrações. */
 object Seed {
 
+    const val ATACADAO_RESENDE_URL = "https://www.atacadao.com.br/loja/resende"
+
     data class MarketSeed(
         val name: String,
         val matchPattern: String, // LIKE usado para achar o mercado já cadastrado pelo usuário
@@ -26,8 +28,8 @@ object Seed {
             address = "Resende - RJ",
             colorHex = "#E30613",
             onlineSource = OnlineSource.VTEX_ATACADAO,
-            flyerUrl = "",
-            flyerKind = FlyerKind.NONE
+            flyerUrl = ATACADAO_RESENDE_URL,
+            flyerKind = FlyerKind.ATACADAO_STORE
         ),
         MarketSeed(
             name = "Spani Atacadista Resende",

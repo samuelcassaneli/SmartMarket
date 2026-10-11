@@ -151,6 +151,7 @@ fun MarketEditSheet(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 FilterChip(selected = flyerKind == FlyerKind.PDF_LINK, onClick = { flyerKind = FlyerKind.PDF_LINK }, label = { Text("PDF") })
                 FilterChip(selected = flyerKind == FlyerKind.IMAGE_PAGES, onClick = { flyerKind = FlyerKind.IMAGE_PAGES }, label = { Text("Imagens") })
+                FilterChip(selected = flyerKind == FlyerKind.ATACADAO_STORE, onClick = { flyerKind = FlyerKind.ATACADAO_STORE }, label = { Text("Loja Atacadão") })
             }
         }
 

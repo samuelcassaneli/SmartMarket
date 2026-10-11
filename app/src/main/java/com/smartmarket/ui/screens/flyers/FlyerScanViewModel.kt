@@ -10,6 +10,7 @@ import com.smartmarket.data.entity.Product
 import com.smartmarket.data.entity.Supermarket
 import com.smartmarket.data.repo.PriceEntry
 import com.smartmarket.data.repo.PriceRepository
+import com.smartmarket.domain.flyers.FlyerInterpreter
 import com.smartmarket.domain.flyers.matchOffers
 import com.smartmarket.domain.matching.ProductMatcher
 import com.smartmarket.domain.ocr.EncarteParser
@@ -56,7 +57,8 @@ class FlyerScanViewModel(
     private val matcher: ProductMatcher,
     private val priceRepository: PriceRepository,
     private val productDao: ProductDao,
-    supermarketDao: SupermarketDao
+    supermarketDao: SupermarketDao,
+    private val interpreter: FlyerInterpreter
 ) : ViewModel() {
 
     val markets: StateFlow<List<Supermarket>> = supermarketDao.getAllSupermarkets()
@@ -105,7 +107,13 @@ class FlyerScanViewModel(
                 val pages = read { c, t -> _phase.value = ScanPhase.Reading("Lendo página $c de $t…", c, t) }
                 _phase.value = ScanPhase.Reading("Procurando ofertas…", 0, 0)
                 val marketName = markets.value.firstOrNull { it.id == _marketId.value }?.name
-                val parsed = EncarteParser.parse(pages, listOfNotNull(marketName))
+                val result = interpreter.interpret(pages, marketName) { c, t, ai ->
+                    _phase.value = ScanPhase.Reading(
+                        if (ai) "IA lendo página $c de $t…" else "Separando ofertas da página $c de $t…", c, t
+                    )
+                }
+                result.aiError?.let { _events.trySend("Leitura com IA falhou em algumas páginas ($it); usamos a leitura local.") }
+                val parsed = result.offers
                 val matched = matchOffers(parsed, matcher)
                 val built = matched.mapIndexed { i, m ->
                     ScanItem(

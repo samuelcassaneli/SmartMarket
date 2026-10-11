@@ -16,6 +16,7 @@ object FlyerKind {
     const val NONE = "NONE"
     const val PDF_LINK = "PDF_LINK"       // página contém link para um PDF
     const val IMAGE_PAGES = "IMAGE_PAGES" // página contém as páginas do encarte como imagens
+    const val ATACADAO_STORE = "ATACADAO_STORE" // página da loja do Atacadão (folhetos em JSON, PDFs públicos)
 }
 
 @Entity(tableName = "supermarkets")

@@ -43,7 +43,7 @@ import com.smartmarket.data.entity.Supermarket
         Flyer::class,
         FlyerOffer::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {

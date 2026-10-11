@@ -30,8 +30,14 @@ data class Box(val left: Int, val top: Int, val right: Int, val bottom: Int) {
 /** Linha de texto crua devolvida pelo OCR. */
 data class OcrLine(val text: String, val box: Box? = null)
 
-/** Uma página lida (linhas na ordem do OCR). */
-data class OcrPage(val index: Int, val lines: List<OcrLine>)
+/**
+ * Uma página lida (linhas na ordem do OCR). [image] guarda a página em JPEG reduzido quando ela veio
+ * de imagem (OCR), para permitir a leitura por IA; páginas com texto de PDF não precisam.
+ */
+data class OcrPage(val index: Int, val lines: List<OcrLine>, val image: ByteArray? = null, val fromPdfText: Boolean = false) {
+    override fun equals(other: Any?): Boolean = other is OcrPage && other.index == index && other.lines == lines
+    override fun hashCode(): Int = 31 * index + lines.hashCode()
+}
 
 /** Oferta extraída do encarte (antes do casamento com o catálogo). */
 data class ParsedOffer(
@@ -144,8 +150,19 @@ object EncarteParser {
         "oferta", "ofertas", "super oferta", "super ofertas", "aproveite", "imperdivel", "imperdiveis",
         "so hoje", "economia", "mais economia", "promocao", "promocoes", "preco baixo", "precos baixos",
         "jornal de ofertas", "encarte", "confira", "novidade", "lancamento", "destaque", "baixou",
-        "atacado", "varejo", "preco", "precos", "por apenas", "apenas", "a partir de", "unidade", "unidades"
+        "atacado", "varejo", "preco", "precos", "por apenas", "apenas", "a partir de", "unidade", "unidades",
+        // seções de encarte
+        "acougue", "mercearia", "hortifruti", "hortifrutti", "frios", "frios e laticinios", "laticinios", "padaria",
+        "bebidas", "limpeza", "higiene", "perfumaria", "higiene pessoal", "higiene pessoal perfumaria", "bazar",
+        "pet shop", "automotivo", "doces", "biscoitos", "doces biscoitos", "congelados", "matinais", "peixaria",
+        "automotivo pet shop bazar", "limpeza e higiene", "utilidades", "utilidades domesticas", "festa", "feirinha"
     )
+
+    /** Chamadas de capa em maiúsculas sem número ("QUALIDADE E ECONOMIA EM CADA CORTE!"). */
+    private val SLOGAN_WORDS = setOf("qualidade", "economia", "corte", "cada", "melhor", "melhores", "precos",
+        "preco", "ofertas", "oferta", "semana", "mes", "dia", "aproveite", "imperdivel", "voce", "sua", "seu",
+        "familia", "casa", "mais", "em", "e", "de", "da", "do", "para", "com", "o", "a", "os", "as", "na", "no",
+        "todo", "toda", "todos", "aqui", "tem", "so", "hoje", "baixo", "baixos", "especial", "especiais")
 
     private val MARKET_WORDS = listOf(
         "spani", "atacadao", "dom atacadista", "atacadista", "assai", "guanabara", "carrefour", "supermercados",
@@ -178,11 +195,29 @@ object EncarteParser {
     private val SIZE_TOKEN = Regex("""^\d+(?:[.,]\d+)?(?:kg|g|gr|grs|mg|ml|l|lt|lts|un|und|m|cm|mm)?$""")
     private val PACK_TOKEN = Regex("""^(?:c|x|cx|l|p)?\d+$""")
 
+    /** Enchimentos longos que o OCR costuma ler com erro ("Uiidades", "Fragrncias"). */
+    private val FILLER_LONG = listOf(
+        "unidade", "unidades", "fragrancias", "fragrancia", "sabores", "variados", "variadas", "embalagem",
+        "tradicional", "tradicionais", "diversos", "diversas", "tamanhos", "modelos"
+    )
+
+    /** Token de enchimento, inclusive com até 2 erros de leitura em palavras longas. */
+    fun isFillerLike(token: String): Boolean {
+        val t = normalize(token).replace(Regex("""[^a-z0-9]"""), "")
+        if (t.isEmpty()) return true
+        if (t in FILLER_TOKENS || t.startsWith("unid") || t.startsWith("aunid")) return true
+        if (t.length < 5) return false
+        return FILLER_LONG.any { f ->
+            kotlin.math.abs(f.length - t.length) <= 2 &&
+                com.smartmarket.domain.matching.FuzzyMatcher.levenshteinDistance(t, f) <= (if (f.length >= 8) 2 else 1)
+        }
+    }
+
     /** Quantidade de letras "úteis": letras de tokens que não são unidade, quantidade ou enchimento. */
     fun usefulLetters(text: String): Int {
         val norm = normalize(text).replace(Regex("""[^a-z0-9 ]"""), " ")
         return norm.split(" ").filter { it.isNotBlank() }
-            .filterNot { it in FILLER_TOKENS || SIZE_TOKEN.matches(it) || PACK_TOKEN.matches(it) }
+            .filterNot { it in FILLER_TOKENS || SIZE_TOKEN.matches(it) || PACK_TOKEN.matches(it) || isFillerLike(it) }
             .filterNot { it.startsWith("unid") || it.startsWith("aunid") }
             .sumOf { tok -> tok.count { it.isLetter() } }
     }
@@ -214,6 +249,10 @@ object EncarteParser {
         if (LEGAL_PHRASES.any { norm.contains(it) }) return true
         val bare = norm.replace(Regex("""[^a-z0-9 ]"""), " ").replace("\\s+".toRegex(), " ").trim()
         if (bare in HEADINGS) return true
+        val bareWords = bare.split(" ").filter { it.isNotBlank() }
+        if (bareWords.isNotEmpty() && bareWords.all { it in SLOGAN_WORDS }) return true
+        // título de seção em maiúsculas: só palavras de HEADINGS
+        if (text.none { it.isLowerCase() } && bareWords.isNotEmpty() && bareWords.all { w -> HEADINGS.any { h -> h.split(" ").contains(w) } || w.length <= 2 }) return true
         if (isDate(norm) && usefulLetters(DATE_TEXT.replace(WEEKDAYS.replace(norm, " "), " ")) < 4) return true
         val withoutMarket = stripMarketNames(norm, marketNames)
         if (withoutMarket != norm && usefulLetters(withoutMarket) < 4) return true
@@ -231,6 +270,43 @@ object EncarteParser {
         return false
     }
 
+    // ------------------------------------------------------------------ Rótulos de preço
+
+    /**
+     * Textos que acompanham preços em cards de encarte (Atacadão, atacarejos): não são nome de
+     * produto, mas indicam o papel do preço ao lado (normal, só no app, só com cartão).
+     */
+    private val PRICE_LABEL_PHRASES = listOf(
+        "preco varejo", "varejo/atacado", "varejo atacado", "preco com oferta", "oferta ativada", "ativada no",
+        "no app", "pagando com", "app pagando", "carrefour ou", "sam's club", "sams club", "sam s club",
+        "cartao atacadao", "desconto creditado", "creditado na fatura", "limite maximo", "preco por quilo",
+        "preco do kg", "preco por kg", "por apenas", "preco exclusivo", "exclusivo app", "exclusivo no app",
+        "preco normal", "preco clube", "clube de vantagens"
+    )
+
+    /** Rótulos que marcam o preço seguinte como condicionado (app, cartão, clube). */
+    private val CONDITIONAL_HINTS = listOf("app", "cartao", "carrefour", "sam", "clube", "fatura", "exclusivo")
+
+    /** "de: R$23,90 por:" — preço antigo riscado. */
+    private val OLD_PRICE = Regex("""^\s*(?:de\s*:?\s*(?:r\s*\$\s*)?\d[\d.,\s]*\s*(?:por\s*:?)?|(?:de\s*:?\s*)?(?:r\s*\$\s*)?\d[\d.,\s]*\s*por\s*:?|de\s*:?|por\s*:?)\s*$""", RegexOption.IGNORE_CASE)
+
+    /** Palavras que só aparecem em rótulos de preço; um rótulo é feito apenas delas. */
+    private val LABEL_WORDS = setOf(
+        "preco", "precos", "varejo", "atacado", "com", "oferta", "ofertas", "ativada", "ativado", "no", "na", "app",
+        "aplicativo", "pagando", "cartao", "atacadao", "carrefour", "ou", "sam", "s", "sams", "club", "desconto",
+        "creditado", "fatura", "consulte", "limite", "maximo", "por", "cliente", "quilo", "kg", "exclusivo", "normal",
+        "clube", "de", "vantagens", "do", "da", "apenas", "peca", "r", "rs", "a", "e", "unidade", "un", "pague", "pelo"
+    )
+
+    fun isPriceLabel(text: String): Boolean {
+        val norm = normalize(text)
+        if (OLD_PRICE.matches(norm)) return true
+        val noPrice = normalize(stripPrices(text)).replace(Regex("""[^a-z0-9/ ]"""), " ").replace("\\s+".toRegex(), " ")
+        if (PRICE_LABEL_PHRASES.none { noPrice.contains(it.replace("'", " ")) }) return false
+        val words = noPrice.replace("/", " ").split(" ").filter { it.isNotBlank() }
+        return words.isNotEmpty() && words.all { it in LABEL_WORDS || it.all(Char::isDigit) }
+    }
+
     // ------------------------------------------------------------------ Modificadores (atacado, leve/pague)
 
     private val WHOLESALE_MIN = Regex("""a\s*partir\s*de\s*(\d{1,3})""")
@@ -242,7 +318,7 @@ object EncarteParser {
         RegexOption.IGNORE_CASE
     )
 
-    private enum class Kind { PRICE, MODIFIER, TEXT, FILLER, DISCARD }
+    private enum class Kind { PRICE, MODIFIER, LABEL, TEXT, FILLER, DISCARD }
 
     private class Item(
         val kind: Kind,
@@ -254,7 +330,11 @@ object EncarteParser {
         val minQty: Int? = null,
         val levePague: String? = null,
         /** Preço de "nesta embalagem a unidade sai a": informativo, não é a oferta. */
-        val packInfo: Boolean = false
+        val packInfo: Boolean = false,
+        /** Rótulo indica preço condicionado (app, cartão). */
+        val conditional: Boolean = false,
+        /** Preço antigo ("de: R$ 23,90 por:"). */
+        val oldPrice: Double? = null
     )
 
     /** Classifica uma linha crua, separando preço embutido do texto. Pode gerar até 2 itens. */
@@ -271,6 +351,11 @@ object EncarteParser {
         val rest = stripPrices(MODIFIER_STRIP.replace(raw, " ")).replace("\\s+".toRegex(), " ").trim()
         val out = mutableListOf<Item>()
 
+        if (isPriceLabel(raw)) {
+            val old = if (OLD_PRICE.matches(norm)) prices.firstOrNull() else null
+            val conditional = CONDITIONAL_HINTS.any { norm.contains(it) }
+            return listOf(Item(Kind.LABEL, raw, line.box, order, conditional = conditional, oldPrice = old))
+        }
         if (packInfo) {
             // "NESTA EMBALAGEM A UNIDADE SAI A: 6,99": não é preço de oferta nem descrição
             return listOf(Item(Kind.DISCARD, raw, line.box, order))
@@ -371,6 +456,12 @@ object EncarteParser {
         return all.filter { seen.add(normalize(it.description) + "|" + it.price) }
     }
 
+    /** Pilha de preços e rótulos na mesma coluna (ex.: card do Atacadão com 3 preços). */
+    private class Stack(val items: MutableList<Item>) {
+        var box: Box = items.first().box!!
+        fun add(item: Item) { items += item; box = box.union(item.box!!) }
+    }
+
     private fun parseSpatial(items: List<Item>, page: Int): List<ParsedOffer> {
         val descItems = items.filter { it.kind == Kind.TEXT || it.kind == Kind.FILLER }
         val lineH = median(descItems.mapNotNull { it.box?.height }).coerceAtLeast(1)
@@ -396,37 +487,138 @@ object EncarteParser {
         val groups = groupsByRoot.values.filter { it.hasText }
         if (groups.isEmpty()) return emptyList()
 
+        // 2) pilhas: preços, rótulos e modificadores na mesma coluna, sem descrição no meio
+        val floating = items.filter { x -> x.kind == Kind.PRICE || x.kind == Kind.MODIFIER || x.kind == Kind.LABEL }
+            .sortedBy { it.box!!.top }
+        val priceH = median(floating.filter { it.kind == Kind.PRICE }.map { it.box!!.height }).coerceAtLeast(lineH)
+        val descBoxes = descItems.map { it.box!! }
+        val stacks = mutableListOf<Stack>()
+        for (it in floating) {
+            val b = it.box!!
+            val target = stacks.lastOrNull { st ->
+                val sb = st.box
+                val xOverlap = min(sb.right, b.right) - max(sb.left, b.left)
+                val sameColumn = xOverlap >= min(sb.width, b.width) / 3 || abs(sb.centerX - b.centerX) <= priceH
+                val gap = b.top - sb.bottom
+                val textBetween = descBoxes.any { d ->
+                    d.top >= sb.bottom - 2 && d.bottom <= b.top + 2 &&
+                        min(d.right, max(sb.right, b.right)) - max(d.left, min(sb.left, b.left)) > 0
+                }
+                sameColumn && gap <= (priceH * 1.3).toInt() && !textBetween
+            }
+            if (target != null) target.add(it) else stacks += Stack(mutableListOf(it))
+        }
+
         val maxDist = lineH * 9.0
 
         fun distance(g: Box, p: Box): Double {
             val dx = g.horizontalGap(p).toDouble()
             return when {
-                p.top >= g.bottom - g.height / 4 -> dx + max(0, p.top - g.bottom) // abaixo
                 p.verticalOverlap(g) > 0 -> dx * 1.1 + (if (p.left < g.left) dx else 0.0) // ao lado
+                p.top >= g.bottom - g.height / 4 -> dx + max(0, p.top - g.bottom) // abaixo
                 else -> dx + (g.top - p.bottom).coerceAtLeast(0) * 2.5 // acima (improvável)
             }
         }
 
-        // 2) cada preço/modificador vai para o grupo mais próximo
-        data class Assigned(val item: Item, val dist: Double)
+        // 3) cada pilha vai para o grupo mais próximo; um grupo recebe a pilha mais próxima com preço
+        data class Assigned(val stack: Stack, val dist: Double)
         val assigned = HashMap<Group, MutableList<Assigned>>()
-        val floating = items.filter { x -> x.kind == Kind.PRICE || x.kind == Kind.MODIFIER }
-        for (pi in floating) {
+        for (st in stacks) {
             var best: Group? = null
             var bestD = Double.MAX_VALUE
             for (g in groups) {
-                val d = distance(g.box!!, pi.box!!)
+                val d = distance(g.box!!, st.box)
                 if (d < bestD) { bestD = d; best = g }
             }
-            if (best != null && bestD <= maxDist) assigned.getOrPut(best) { mutableListOf() }.add(Assigned(pi, bestD))
+            if (best != null && bestD <= maxDist) assigned.getOrPut(best) { mutableListOf() }.add(Assigned(st, bestD))
         }
 
         return groups.mapNotNull { g ->
-            val list = assigned[g].orEmpty()
-            val priceItems = list.filter { it.item.kind == Kind.PRICE }.sortedBy { it.dist }
-            val modifiers = list.map { it.item } + g.items
-            buildOffer(g, priceItems.map { it.item }, modifiers, page)
+            val list = assigned[g].orEmpty().sortedBy { it.dist }
+            val withPrice = list.filter { a -> a.stack.items.any { it.kind == Kind.PRICE } }
+            if (withPrice.isEmpty()) return@mapNotNull null
+            // pilhas da mesma coluna atribuídas ao grupo e encadeadas na vertical formam um só card
+            val first = withPrice.first().stack
+            val column = list.map { it.stack }.filter { st ->
+                min(st.box.right, first.box.right) - max(st.box.left, first.box.left) > 0
+            }.sortedBy { it.box.top }
+            val merged = mutableListOf<Stack>()
+            var chain: Box? = null
+            for (st in column) {
+                val c = chain
+                if (c == null || st.box.top - c.bottom <= priceH * 3 || c.top - st.box.bottom <= priceH * 3) {
+                    merged += st
+                    chain = if (c == null) st.box else c.union(st.box)
+                }
+            }
+            if (first !in merged) merged.clear().also { merged += first }
+            val main = Stack(merged.flatMap { it.items }.toMutableList())
+            val stackPrices = main.items.filter { it.kind == Kind.PRICE }.sortedBy { it.box!!.top }
+            val labels = main.items.filter { it.kind == Kind.LABEL }
+            val modifiers = list.flatMap { a -> a.stack.items.filter { it.kind == Kind.MODIFIER || it.kind == Kind.PRICE } } + g.items
+            if (labels.isNotEmpty() && stackPrices.size >= 2) {
+                buildLabeledOffer(g, stackPrices, labels, page)
+            } else {
+                // preços de pilhas secundárias próximas também contam (varejo + atacado em blocos separados)
+                val nearPrices = withPrice.filter { it.dist <= withPrice.first().dist + lineH * 2 }
+                    .flatMap { a -> a.stack.items.filter { it.kind == Kind.PRICE } }
+                buildOffer(g, nearPrices, modifiers, page)
+            }
         }
+    }
+
+    /**
+     * Card com rótulos (ex.: Atacadão): o primeiro preço da pilha é o normal (varejo/atacado),
+     * os seguintes são condicionados (app, cartão) e vão para a observação.
+     */
+    private fun buildLabeledOffer(g: Group, prices: List<Item>, labels: List<Item>, page: Int): ParsedOffer? {
+        val description = describe(g) ?: return null
+        val values = prices.flatMap { it.prices }
+        val regular = values.first()
+        val conditional = values.drop(1).filter { it < regular }
+        val old = labels.firstNotNullOfOrNull { it.oldPrice }
+        val notes = mutableListOf<String>()
+        if (old != null && old > regular) notes += "de ${formatBr(old)}"
+        when (conditional.size) {
+            0 -> Unit
+            1 -> notes += "no app ${formatBr(conditional[0])}"
+            else -> {
+                notes += "no app ${formatBr(conditional[0])}"
+                notes += "app + cartão ${formatBr(conditional.min())}"
+            }
+        }
+        return ParsedOffer(description, regular, retailPrice = null, note = notes.joinToString(", "), page = page, box = g.box)
+    }
+
+    private fun formatBr(v: Double): String = "R$ " + String.format(Locale.ROOT, "%.2f", v).replace('.', ',')
+
+    /** Separa palavras coladas por falha do PDF ("LavaRoupasemPóTixan" -> "Lava Roupasem Pó Tixan"). */
+    private val GLUED = Regex("""(?<=[a-zà-ÿ])(?=[A-ZÀ-Ý])|(?<=[a-zà-ÿ])(?=\d)""")
+
+    private fun unglue(text: String): String = text.split(" ").joinToString(" ") { tok ->
+        if (tok.length >= 12 && tok.count { it.isUpperCase() } >= 2) tok.replace(GLUED, " ") else tok
+    }
+
+    private fun describe(g: Group): String? {
+        val description = g.items.sortedBy { it.order }.joinToString(" ") { unglue(it.text) }
+            .replace(Regex("""\s+(?:un|und|unid)\.?$""", RegexOption.IGNORE_CASE), "")
+            .replace("\\s+".toRegex(), " ")
+            .trim()
+            .let { trimTrailingFiller(it) }
+        return description.takeIf { usefulLetters(it) >= 3 }
+    }
+
+    /** Tira do fim do nome "Un", "Kg" solto e enchimentos lidos com erro ("Uiidades"). */
+    private fun trimTrailingFiller(text: String): String {
+        val tokens = text.split(" ").toMutableList()
+        while (tokens.size > 2) {
+            val last = tokens.last()
+            val n = normalize(last).replace(Regex("""[^a-z0-9]"""), "")
+            val isUnit = n in setOf("un", "und", "unid", "cada") || (n.length >= 5 && isFillerLike(n) &&
+                FILLER_LONG.take(2).any { com.smartmarket.domain.matching.FuzzyMatcher.levenshteinDistance(n, it) <= 2 })
+            if (isUnit) tokens.removeAt(tokens.lastIndex) else break
+        }
+        return tokens.joinToString(" ")
     }
 
     private fun parseSequential(items: List<Item>, page: Int): List<ParsedOffer> {
@@ -448,7 +640,7 @@ object EncarteParser {
                 }
                 Kind.PRICE -> if (current != null) prices.add(item)
                 Kind.MODIFIER -> mods.add(item)
-                Kind.DISCARD -> Unit
+                Kind.DISCARD, Kind.LABEL -> Unit
             }
         }
         flush()
@@ -457,11 +649,7 @@ object EncarteParser {
 
     private fun buildOffer(g: Group, priceItems: List<Item>, modifiers: List<Item>, page: Int): ParsedOffer? {
         if (priceItems.isEmpty()) return null
-        val description = g.items.sortedBy { it.order }.joinToString(" ") { it.text }
-            .replace(Regex("""\s+(?:un|und|unid)\.?$""", RegexOption.IGNORE_CASE), "")
-            .replace("\\s+".toRegex(), " ")
-            .trim()
-        if (usefulLetters(description) < 3) return null
+        val description = describe(g) ?: return null
 
         // até dois preços, os mais próximos
         val candidates = priceItems.flatMap { it.prices }.distinct().take(2)

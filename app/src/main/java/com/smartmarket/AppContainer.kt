@@ -4,6 +4,9 @@ import android.content.Context
 import com.smartmarket.data.db.AppDatabase
 import com.smartmarket.data.prefs.SettingsRepository
 import com.smartmarket.data.repo.PriceRepository
+import com.smartmarket.domain.ai.GeminiClient
+import com.smartmarket.domain.deals.DealReportStore
+import com.smartmarket.domain.flyers.FlyerInterpreter
 import com.smartmarket.domain.matching.ProductMatcher
 import com.smartmarket.domain.ocr.OcrProcessor
 import com.smartmarket.work.PriceAlertWorker
@@ -37,6 +40,13 @@ class AppContainer(val context: Context) {
     val productMatcher = ProductMatcher(db.productDao())
 
     val ocrProcessor: OcrProcessor by lazy { OcrProcessor(context) }
+
+    val gemini: GeminiClient by lazy { GeminiClient(httpClient) }
+
+    val flyerInterpreter: FlyerInterpreter by lazy { FlyerInterpreter(settings, gemini) }
+
+    /** Último relatório de promoções da verificação periódica. */
+    val dealReports: DealReportStore by lazy { DealReportStore(context) }
 
     companion object {
         const val USER_AGENT =

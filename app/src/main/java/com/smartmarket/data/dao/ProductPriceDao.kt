@@ -81,4 +81,8 @@ interface ProductPriceDao {
 
     @Query("SELECT * FROM price_observations WHERE observedAt >= :since ORDER BY observedAt DESC")
     suspend fun getObservationsSince(since: Long): List<PriceObservation>
+
+    /** Observações num intervalo (mais recentes primeiro), para a referência da última verificação. */
+    @Query("SELECT * FROM price_observations WHERE observedAt >= :from AND observedAt < :to ORDER BY observedAt DESC")
+    suspend fun getObservationsBetween(from: Long, to: Long): List<PriceObservation>
 }

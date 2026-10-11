@@ -9,6 +9,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.smartmarket.ui.screens.deals.DealsScreen
 import com.smartmarket.ui.screens.flyers.FlyerReviewScreen
 import com.smartmarket.ui.screens.flyers.FlyerScanScreen
 import com.smartmarket.ui.screens.flyers.FlyersScreen
@@ -88,5 +89,6 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
         composable(Routes.MARKETS) { MarketsScreen(navController) }
         composable(Routes.PANTRY) { PantryScreen(navController) }
         composable(Routes.SETTINGS) { SettingsScreen(navController) }
+        composable(Routes.DEALS) { DealsScreen(navController) }
     }
 }

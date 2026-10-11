@@ -33,12 +33,14 @@ class OcrProcessor(private val context: Context) {
 
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
+    private val pdfText by lazy { PdfTextReader(context) }
+
     /** Lê um bitmap. Não recicla o bitmap recebido. */
     suspend fun readBitmap(bitmap: Bitmap, pageIndex: Int = 0): OcrPage = withContext(Dispatchers.Default) {
         val scaled = downscale(bitmap)
         try {
             val result = recognize(InputImage.fromBitmap(scaled, 0))
-            OcrPage(pageIndex, toLines(result))
+            OcrPage(pageIndex, toLines(result), image = compressForAi(scaled))
         } finally {
             if (scaled !== bitmap) scaled.recycle()
         }
@@ -79,14 +81,27 @@ class OcrProcessor(private val context: Context) {
         }
     }
 
-    /** Lê um PDF local, página a página, em escala 2x. */
+    /**
+     * Lê um PDF local. Usa o texto embutido (exato) quando a página tem; as páginas escaneadas
+     * (só imagem) são renderizadas em 2x e passam pelo OCR.
+     */
     suspend fun readPdfFile(file: File, onProgress: PageProgress = { _, _ -> }): List<OcrPage> = withContext(Dispatchers.IO) {
+        val textPages = runCatching { pdfText.read(file) }.getOrNull()
+        if (textPages != null && textPages.all { it != null }) {
+            onProgress(textPages.size, textPages.size)
+            return@withContext textPages.mapIndexed { i, lines -> OcrPage(i, lines!!, fromPdfText = true) }
+        }
         val pages = mutableListOf<OcrPage>()
         ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
             PdfRenderer(fd).use { renderer ->
                 val total = renderer.pageCount
                 for (i in 0 until total) {
                     onProgress(i + 1, total)
+                    val textLines = textPages?.getOrNull(i)
+                    if (textLines != null) {
+                        pages += OcrPage(i, textLines, fromPdfText = true)
+                        continue
+                    }
                     val bitmap = renderer.openPage(i).use { page ->
                         var w = page.width * 2
                         var h = page.height * 2
@@ -128,6 +143,23 @@ class OcrProcessor(private val context: Context) {
 
     // ------------------------------------------------------------------ internos
 
+    /** JPEG reduzido (lado maior até 1600px) para enviar à IA, se ativada. */
+    private fun compressForAi(bitmap: Bitmap): ByteArray? = runCatching {
+        val longest = max(bitmap.width, bitmap.height)
+        val small = if (longest > AI_MAX_SIDE) {
+            val f = AI_MAX_SIDE.toFloat() / longest
+            Bitmap.createScaledBitmap(bitmap, (bitmap.width * f).toInt().coerceAtLeast(1), (bitmap.height * f).toInt().coerceAtLeast(1), true)
+        } else bitmap
+        try {
+            java.io.ByteArrayOutputStream().use { out ->
+                small.compress(Bitmap.CompressFormat.JPEG, 80, out)
+                out.toByteArray()
+            }
+        } finally {
+            if (small !== bitmap) small.recycle()
+        }
+    }.getOrNull()
+
     private suspend fun recognize(image: InputImage): Text = suspendCancellableCoroutine { cont ->
         recognizer.process(image)
             .addOnSuccessListener { if (cont.isActive) cont.resume(it) }
@@ -165,6 +197,7 @@ class OcrProcessor(private val context: Context) {
     }
 
     companion object {
+        private const val AI_MAX_SIDE = 1600
         const val MAX_SIDE = 2500
 
         fun isPdf(file: File): Boolean = runCatching {
