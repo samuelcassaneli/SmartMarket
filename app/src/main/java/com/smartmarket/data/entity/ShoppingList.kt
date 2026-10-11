@@ -1,5 +1,6 @@
 package com.smartmarket.data.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -14,7 +15,9 @@ data class ShoppingList(
     val referenceYear: Int,
     val notes: String = "",
     val budgetTarget: Double = 0.0, // Orçamento meta opcional para a compra
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "0")
+    val isArchived: Boolean = false
 )
 
 @Entity(

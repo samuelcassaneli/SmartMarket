@@ -2,13 +2,16 @@ package com.smartmarket.domain.ocr
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import com.smartmarket.data.entity.Product
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -16,86 +19,159 @@ import java.io.File
 import java.io.FileOutputStream
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.math.max
 
+/** Progresso da leitura: página atual (1-based) e total. */
+typealias PageProgress = (current: Int, total: Int) -> Unit
+
+/**
+ * Lê texto de imagens e PDFs com o ML Kit (modelo latino empacotado, offline) e devolve
+ * linhas cruas ([OcrPage]) para o [EncarteParser]. Cuida da memória: reduz bitmaps grandes,
+ * renderiza PDF uma página por vez e recicla tudo.
+ */
 class OcrProcessor(private val context: Context) {
 
-    // Inicializa o TextRecognizer nativo offline do ML Kit
-    private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
-    /**
-     * Processa um Bitmap e retorna os itens encontrados
-     */
-    suspend fun processBitmap(
-        bitmap: Bitmap,
-        registeredProducts: List<Product>
-    ): List<ExtractedOcrItem> = withContext(Dispatchers.Default) {
-        val image = InputImage.fromBitmap(bitmap, 0)
-        val visionText = suspendCancellableCoroutine { continuation ->
-            recognizer.process(image)
-                .addOnSuccessListener { result ->
-                    continuation.resume(result)
-                }
-                .addOnFailureListener { error ->
-                    continuation.resumeWithException(error)
-                }
+    /** Lê um bitmap. Não recicla o bitmap recebido. */
+    suspend fun readBitmap(bitmap: Bitmap, pageIndex: Int = 0): OcrPage = withContext(Dispatchers.Default) {
+        val scaled = downscale(bitmap)
+        try {
+            val result = recognize(InputImage.fromBitmap(scaled, 0))
+            OcrPage(pageIndex, toLines(result))
+        } finally {
+            if (scaled !== bitmap) scaled.recycle()
         }
-
-        val rawElements = mutableListOf<EncarteParser.RawTextElement>()
-        for (block in visionText.textBlocks) {
-            for (line in block.lines) {
-                rawElements.add(
-                    EncarteParser.RawTextElement(
-                        text = line.text,
-                        boundingBox = line.boundingBox
-                    )
-                )
-            }
-        }
-
-        EncarteParser.processDetectedElements(rawElements, registeredProducts)
     }
 
-    /**
-     * Processa um arquivo PDF (renderizando página a página em alta definição)
-     */
-    suspend fun processPdfUri(
-        pdfUri: Uri,
-        registeredProducts: List<Product>
-    ): List<ExtractedOcrItem> = withContext(Dispatchers.IO) {
-        val allExtracted = mutableListOf<ExtractedOcrItem>()
-        val tempFile = File(context.cacheDir, "temp_ocr_encarte.pdf")
-
-        // Copia do ContentResolver para arquivo temporário acessível pelo PdfRenderer
-        context.contentResolver.openInputStream(pdfUri)?.use { input ->
-            FileOutputStream(tempFile).use { output ->
-                input.copyTo(output)
-            }
-        }
-
-        val fileDescriptor = ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
-        val pdfRenderer = PdfRenderer(fileDescriptor)
-
+    /** Lê uma imagem (Uri de galeria/câmera). */
+    suspend fun readImageUri(uri: Uri, pageIndex: Int = 0): OcrPage = withContext(Dispatchers.IO) {
+        val bitmap = decodeSampled({ context.contentResolver.openInputStream(uri) })
+            ?: throw IllegalArgumentException("Não foi possível abrir a imagem")
         try {
-            val pageCount = pdfRenderer.pageCount
-            for (pageIndex in 0 until pageCount) {
-                val page = pdfRenderer.openPage(pageIndex)
-                // Renderiza em 2x de escala para obter alta nitidez no OCR
-                val bitmapWidth = page.width * 2
-                val bitmapHeight = page.height * 2
-                val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                page.close()
-
-                val itemsForPage = processBitmap(bitmap, registeredProducts)
-                allExtracted.addAll(itemsForPage)
-                bitmap.recycle()
-            }
+            readBitmap(bitmap, pageIndex)
         } finally {
-            pdfRenderer.close()
-            fileDescriptor.close()
-            tempFile.delete()
+            bitmap.recycle()
         }
+    }
 
-        allExtracted
+    /** Lê um arquivo local de imagem. */
+    suspend fun readImageFile(file: File, pageIndex: Int = 0): OcrPage = withContext(Dispatchers.IO) {
+        val bitmap = decodeSampled({ file.inputStream() })
+            ?: throw IllegalArgumentException("Imagem inválida: ${file.name}")
+        try {
+            readBitmap(bitmap, pageIndex)
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    /** Lê um PDF vindo de um Uri (copia para o cache, pois o PdfRenderer precisa de arquivo buscável). */
+    suspend fun readPdfUri(uri: Uri, onProgress: PageProgress = { _, _ -> }): List<OcrPage> = withContext(Dispatchers.IO) {
+        val temp = File(context.cacheDir, "ocr_${System.nanoTime()}.pdf")
+        try {
+            val input = context.contentResolver.openInputStream(uri)
+                ?: throw IllegalArgumentException("Não foi possível abrir o PDF")
+            input.use { inp -> FileOutputStream(temp).use { out -> inp.copyTo(out) } }
+            readPdfFile(temp, onProgress)
+        } finally {
+            temp.delete()
+        }
+    }
+
+    /** Lê um PDF local, página a página, em escala 2x. */
+    suspend fun readPdfFile(file: File, onProgress: PageProgress = { _, _ -> }): List<OcrPage> = withContext(Dispatchers.IO) {
+        val pages = mutableListOf<OcrPage>()
+        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+            PdfRenderer(fd).use { renderer ->
+                val total = renderer.pageCount
+                for (i in 0 until total) {
+                    onProgress(i + 1, total)
+                    val bitmap = renderer.openPage(i).use { page ->
+                        var w = page.width * 2
+                        var h = page.height * 2
+                        val longest = max(w, h)
+                        if (longest > MAX_SIDE) {
+                            val f = MAX_SIDE.toFloat() / longest
+                            w = (w * f).toInt(); h = (h * f).toInt()
+                        }
+                        val bmp = Bitmap.createBitmap(w.coerceAtLeast(1), h.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+                        bmp.eraseColor(Color.WHITE) // PDF com fundo transparente vira preto sem isso
+                        page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        bmp
+                    }
+                    try {
+                        pages += readBitmap(bitmap, i)
+                    } finally {
+                        bitmap.recycle()
+                    }
+                }
+            }
+        }
+        pages
+    }
+
+    /** Detecta o tipo pelo conteúdo (%PDF) e lê o arquivo. */
+    suspend fun readFile(file: File, pageIndex: Int = 0, onProgress: PageProgress = { _, _ -> }): List<OcrPage> =
+        if (isPdf(file)) readPdfFile(file, onProgress) else listOf(readImageFile(file, pageIndex))
+
+    /** Lê um Uri escolhido pelo usuário (imagem ou PDF). */
+    suspend fun readUri(uri: Uri, onProgress: PageProgress = { _, _ -> }): List<OcrPage> {
+        val type = context.contentResolver.getType(uri).orEmpty()
+        return if (type == "application/pdf" || uri.toString().lowercase().endsWith(".pdf")) {
+            readPdfUri(uri, onProgress)
+        } else {
+            onProgress(1, 1)
+            listOf(readImageUri(uri))
+        }
+    }
+
+    // ------------------------------------------------------------------ internos
+
+    private suspend fun recognize(image: InputImage): Text = suspendCancellableCoroutine { cont ->
+        recognizer.process(image)
+            .addOnSuccessListener { if (cont.isActive) cont.resume(it) }
+            .addOnFailureListener { if (cont.isActive) cont.resumeWithException(it) }
+    }
+
+    private fun toLines(text: Text): List<OcrLine> {
+        val out = mutableListOf<OcrLine>()
+        for (block in text.textBlocks) {
+            for (line in block.lines) {
+                out += OcrLine(line.text, line.boundingBox?.toBox())
+            }
+        }
+        return out
+    }
+
+    private fun Rect.toBox() = Box(left, top, right, bottom)
+
+    private fun downscale(bitmap: Bitmap): Bitmap {
+        val longest = max(bitmap.width, bitmap.height)
+        if (longest <= MAX_SIDE) return bitmap
+        val f = MAX_SIDE.toFloat() / longest
+        return Bitmap.createScaledBitmap(bitmap, (bitmap.width * f).toInt().coerceAtLeast(1), (bitmap.height * f).toInt().coerceAtLeast(1), true)
+    }
+
+    /** Decodifica com inSampleSize para não estourar memória com fotos de 12+ MP. */
+    private fun decodeSampled(open: () -> java.io.InputStream?): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        open()?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        val longest = max(bounds.outWidth, bounds.outHeight)
+        while (longest / (sample * 2) >= MAX_SIDE) sample *= 2
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        return open()?.use { BitmapFactory.decodeStream(it, null, opts) }
+    }
+
+    companion object {
+        const val MAX_SIDE = 2500
+
+        fun isPdf(file: File): Boolean = runCatching {
+            file.inputStream().use { s ->
+                val head = ByteArray(4)
+                s.read(head) == 4 && String(head, Charsets.US_ASCII) == "%PDF"
+            }
+        }.getOrDefault(false)
     }
 }

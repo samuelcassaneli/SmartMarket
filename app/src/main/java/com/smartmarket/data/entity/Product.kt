@@ -1,5 +1,6 @@
 package com.smartmarket.data.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -13,5 +14,11 @@ data class Product(
     val unit: String = "un", // ex: un, kg, g, L, ml, pct, cx
     val defaultMonthlyQuantity: Double = 1.0, // Quantidade normal mensal de consumo
     val barcode: String = "",
-    val notes: String = ""
+    val notes: String = "",
+    @ColumnInfo(defaultValue = "")
+    val imageUrl: String = "",
+    @ColumnInfo(defaultValue = "0")
+    val isFavorite: Boolean = false,
+    @ColumnInfo(defaultValue = "0")
+    val createdAt: Long = System.currentTimeMillis()
 )

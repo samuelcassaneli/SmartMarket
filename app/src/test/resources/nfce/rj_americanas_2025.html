@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<!-- saved from url=(0083)https://consultadfe.fazenda.rj.gov.br/consultaDFe/paginas/resultadoNfce.faces?cid=1 -->
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="pt-br" lang="pt-br" class="ui-mobile"><head id="j_idt2"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><!--<base href="https://consultadfe.fazenda.rj.gov.br/consultaDFe/paginas/resultadoNfce.faces?cid=1">--><base href=".">
+		<meta http-equiv="X-UA-Compatible" content="IE=9">
+		
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>Consulta DF-e</title>		
+		<script type="text/javascript" src="./Consulta DF-e_files/jquery-1.9.1.js.download"></script><script type="text/javascript" src="./Consulta DF-e_files/jquery.mobile-1.4.5.min.js.faces"></script>	
+		
+		<style>
+			
+			div#mensagemErro_content > div > div{
+				width: 60px;margin: 0px;
+			}
+			
+			.ui-loader {
+ 				 display:none !important;
+			}
+			
+			.ui-icon-loading {
+			    background:none !important;
+			}
+			
+		</style><link type="text/css" rel="stylesheet" href="./Consulta DF-e_files/paginaDanfe.css.faces"><link type="text/css" rel="stylesheet" href="./Consulta DF-e_files/jquery.mobile-1.4.5.min.css.faces"><link type="text/css" rel="stylesheet" href="./Consulta DF-e_files/nfceMob.css.faces"><link type="text/css" rel="stylesheet" href="./Consulta DF-e_files/nfceMob_ie.css.faces"><script type="text/javascript" src="./Consulta DF-e_files/jsf.js.faces"></script><script type="text/javascript" src="./Consulta DF-e_files/jquery.js.download"></script><script type="text/javascript" src="./Consulta DF-e_files/richfaces.js.download"></script><script type="text/javascript" src="./Consulta DF-e_files/richfaces-base-component.js.download"></script><script type="text/javascript" src="./Consulta DF-e_files/richfaces-event.js.download"></script><script type="text/javascript" src="./Consulta DF-e_files/popupPanel.js.download"></script><script type="text/javascript" src="./Consulta DF-e_files/popupPanelBorders.js.download"></script><script type="text/javascript" src="./Consulta DF-e_files/popupPanelSizer.js.download"></script><link type="text/css" rel="stylesheet" href="./Consulta DF-e_files/popupPanel.ecss"><script type="text/javascript" src="./Consulta DF-e_files/message.js.download"></script><link type="text/css" rel="stylesheet" href="./Consulta DF-e_files/msg.ecss"></head><body class="ui-mobile-viewport ui-overlay-a"><div data-role="page" data-url="/consultaDFe/paginas/resultadoNfce.faces?cid=1" tabindex="0" class="ui-page ui-page-theme-a ui-page-active" style="">
+		<script type="text/javascript">
+			$(function(){
+				var notaCancelada = false;
+				var certlogin = '';
+		
+				if(certlogin != '') {
+					$("#download").click();	
+				}
+				
+				if(notaCancelada) {
+					$("#imgInvalido1").show();
+				}
+				
+				$('#linkMsg').click(function(event) {
+					$('#mensagem').toggle();
+		    	});
+				
+				$("#download").parent().hide();
+				
+			});
+		</script>
+		
+		<div id="containerSis">
+			
+			<div class="contentForm">
+<form id="formulario" name="formulario" method="post" action="https://consultadfe.fazenda.rj.gov.br/consultaDFe/paginas/resultadoNfce.faces?cid=1" enctype="ISO-8859-1" target="_self">
+<input type="hidden" name="formulario" value="formulario">
+<div class="ui-btn ui-input-btn ui-corner-all ui-shadow" style="display: none;"><input id="download" type="submit" name="download" value="" style="display: none;"></div>
+			  		
+			  		<div id="cont-botoes" style="background-color:white;position: relative; display: block;z-index: 50;">
+				  		
+				  		<div id="menu_botoes" class="pad_10"><input type="image" src="./Consulta DF-e_files/bt_NovaConsulta.png" name="j_idt14" alt="Nova consulta" title="Nova consulta" class="bot_consulta imgBtConsulta mB_12"><input type="image" src="./Consulta DF-e_files/bt_ico_nova_consulta.png" name="j_idt15" alt="Nova consulta" title="Nova consulta" class="imgIcoConsulta"><input type="image" src="./Consulta DF-e_files/bt_consultaCompleta_semCert.png" name="j_idt16" alt="Visualizar NFC-e detalhada" title="Visualizar NFC-e detalhada" class="bot_consulta imgBtDetalhada mB_12"><input type="image" src="./Consulta DF-e_files/bt_ico_nota_detalhada.png" name="j_idt17" alt="Visualizar NFC-e detalhada" title="Visualizar NFC-e detalhada" class="bot_consulta imgIcoDetalhada"><a href="https://consultadfe.fazenda.rj.gov.br/consultaDFe/paginas/resultadoNfce.faces?certlogin=1" class="ui-link"><img src="./Consulta DF-e_files/bt_download.png" alt="Baixar nota" title="Baixar nota" class="imgBtDownload"></a><a href="https://consultadfe.fazenda.rj.gov.br/consultaDFe/paginas/resultadoNfce.faces?certlogin=1" class="ui-link"><img src="./Consulta DF-e_files/bt_ico_download.png" alt="Baixar nota" title="Baixar nota" class="imgIcoDownload"></a>
+							
+						<div class="fRight"> 
+							<a href="javascript:window.print();" class="ui-link">
+								<img src="./Consulta DF-e_files/bt_imprimir_doc.png" alt="Nota fiscal de consumidor eletrônica" border="0" title="Nota fiscal de consumidor eletrônica" class="imgBtImprimir">
+								<img src="./Consulta DF-e_files/bt_ico_imprimir_nota.png" alt="Nota fiscal de consumidor eletrônica" border="0" title="Nota fiscal de consumidor eletrônica" class="imgIcoImprimir">
+							</a>
+						</div>
+							
+					  	</div>
+						
+						<div id="avisoTopo" style="text-align:center; padding:10px;">Confira as informações da sua compra na NFC-e abaixo.</div>
+				
+					</div><input type="hidden" name="javax.faces.ViewState" id="j_id1:javax.faces.ViewState:0" value="-3183599179460621706:-4117878018430259341" autocomplete="off">
+</form>
+				
+			</div><div id="mensagemErro" style="visibility: hidden;"><div class="rf-pp-shade" id="mensagemErro_shade" style="z-index:100;"><button class="rf-pp-btn ui-btn ui-shadow ui-corner-all" id="mensagemErroFirstHref" name="mensagemErrofirstHref"></button></div><div class="rf-pp-cntr " id="mensagemErro_container" style="position: fixed; z-index:100; "><div class="rf-pp-shdw" id="mensagemErro_shadow" style="opacity: 0.1;"></div><div class="rf-pp-hdr " id="mensagemErro_header" style="cursor: move;"><div class="rf-pp-hdr-cnt" id="mensagemErro_header_content">
+				<div style="width: 100%; float: left;">
+					
+					<div style="width: 10%; float: right; cursor: pointer; text-align: right; padding-right: 10px;" onclick="RichFaces.component(&#39;mensagemErro&#39;).hide();">X</div>
+				</div></div></div><div class="rf-pp-cnt-scrlr" id="mensagemErro_content_scroller"><div class="rf-pp-cnt" id="mensagemErro_content"><span class="rf-msgs " id="areaDeMensagens" style="margin-top: 30px;"></span>
+			<div align="center" style="bottom: 30px; position: absolute; width: 100%">
+				<br>
+				<div class="ui-btn ui-input-btn ui-corner-all ui-shadow">Fechar<input type="button" value="Fechar" onclick="RichFaces.component(&#39;mensagemErro&#39;).hide();" class="btoGeral"></div>
+				<br>
+			</div></div></div><div class="rf-pp-hndlr  rf-pp-hndlr-l" id="mensagemErroResizerW" style="cursor: w-resize;"></div><div class="rf-pp-hndlr rf-pp-hndlr-r" id="mensagemErroResizerE" style="cursor: e-resize;"></div><div class="rf-pp-hndlr rf-pp-hndlr-t" id="mensagemErroResizerN" style="cursor: n-resize;"></div><div class="rf-pp-hndlr rf-pp-hndlr-b" id="mensagemErroResizerS" style="cursor: s-resize;"></div><div class="rf-pp-hndlr rf-pp-hndlr-tl" id="mensagemErroResizerNW" style="cursor: nw-resize;"></div><div class="rf-pp-hndlr rf-pp-hndlr-tr" id="mensagemErroResizerNE" style="cursor: ne-resize;"></div><div class="rf-pp-hndlr rf-pp-hndlr-bl" id="mensagemErroResizerSW" style="cursor: sw-resize;"></div><div class="rf-pp-hndlr rf-pp-hndlr-br" id="mensagemErroResizerSE" style="cursor: se-resize;"></div></div><script type="text/javascript">new RichFaces.ui.PopupPanel("mensagemErro",{"minHeight":95,"minWidth":500,"resizeable":true} );</script></div>
+
+		<script>
+   			// VERIFICA SE HA MENSAGEM PARA SER EXIBIDA
+   			if( $("#areaDeMensagens").text()!="" ) {
+   				RichFaces.component('mensagemErro').show();
+			}
+   		</script>
+			
+		</div>
+			<div style="position:relative;"><div xmlns:r="http://www.serpro.gov.br/nfe/remessanfe.xsd" xmlns:chave="http://exslt.org/chaveacesso" xmlns:n="http://www.portalfiscal.inf.br/nfe" data-role="header" role="banner" class="ui-header ui-bar-inherit">
+<h1 class="tit ui-title" role="heading" aria-level="1">
+<img alt="NFC-e" height="64" width="112" src="./Consulta DF-e_files/logoNFCe.png"><p>DOCUMENTO AUXILIAR DA NOTA FISCAL DE CONSUMIDOR ELETRÔNICA</p>
+<p></p>
+</h1>
+</div><div data-role="content" class="ui-content" role="main">
+<div id="conteudo">
+<div id="avisos"></div>
+<div class="txtCenter">
+<div class="txtTopo" id="u20">AMERICANAS S/A</div>
+<div class="text">
+								CNPJ:
+								00.776.574/1994-83</div>
+<div class="text">NORONHA TORREZAO
+							,
+							000043
+							,
+							LOJA
+							,
+							SANTA ROSA
+							,
+							Niteroi
+							,
+							RJ</div>
+</div>
+<form class="ui-filterable"><div class="ui-input-search ui-body-inherit ui-corner-all ui-shadow-inset ui-input-has-clear"><input data-type="search" placeholder="Filtrar itens..."><a href="https://consultadfe.fazenda.rj.gov.br/consultaDFe/paginas/resultadoNfce.faces?cid=1#" tabindex="-1" aria-hidden="true" class="ui-input-clear ui-btn ui-icon-delete ui-btn-icon-notext ui-corner-all ui-input-clear-hidden" title="Clear text">Clear text</a></div></form><table data-filter="true" id="tabResult" cellspacing="0" cellpadding="0" align="center" border="0">
+<tbody><tr id="Item + 1">
+<td valign="top"><span class="txtTit">BANANA PRATA ORG KG</span><span class="RCod">
+										(Código:
+										100438
+										)
+									</span>
+<br>
+<span class="Rqtd"><strong>Qtde.:</strong>0,835</span><span class="RUN"><strong>UN: </strong>kg</span><span class="RvlUnit"><strong>Vl. Unit.:</strong>
+										&nbsp;
+										9,99</span></td><td class="txtTit noWrap" valign="top" align="right">
+									Vl. Total
+									<br>
+<span class="valor">8,34</span></td>
+</tr>
+<tr id="Item + 2">
+<td valign="top"><span class="txtTit">BANANA PRATA KG</span><span class="RCod">
+										(Código:
+										100065
+										)
+									</span>
+<br>
+<span class="Rqtd"><strong>Qtde.:</strong>1,085</span><span class="RUN"><strong>UN: </strong>kg</span><span class="RvlUnit"><strong>Vl. Unit.:</strong>
+										&nbsp;
+										9,99</span></td><td class="txtTit noWrap" valign="top" align="right">
+									Vl. Total
+									<br>
+<span class="valor">10,84</span></td>
+</tr>
+<tr id="Item + 3">
+<td valign="top"><span class="txtTit">BANANA TERRA KG</span><span class="RCod">
+										(Código:
+										100066
+										)
+									</span>
+<br>
+<span class="Rqtd"><strong>Qtde.:</strong>0,765</span><span class="RUN"><strong>UN: </strong>kg</span><span class="RvlUnit"><strong>Vl. Unit.:</strong>
+										&nbsp;
+										6,99</span></td><td class="txtTit noWrap" valign="top" align="right">
+									Vl. Total
+									<br>
+<span class="valor">5,35</span></td>
+</tr>
+<tr id="Item + 4">
+<td valign="top"><span class="txtTit">SAC AC AD CZ 11 040.</span><span class="RCod">
+										(Código:
+										144166
+										)
+									</span>
+<br>
+<span class="Rqtd"><strong>Qtde.:</strong>2</span><span class="RUN"><strong>UN: </strong>UN</span><span class="RvlUnit"><strong>Vl. Unit.:</strong>
+										&nbsp;
+										0,08</span></td><td class="txtTit noWrap" valign="top" align="right">
+									Vl. Total
+									<br>
+<span class="valor">0,16</span></td>
+</tr>
+</tbody></table>
+<div class="txtRight" id="totalNota">
+<div id="linhaTotal">
+<label>Qtd. total de itens:</label><span class="totalNumb">4</span>
+</div>
+<div class="linhaShade" id="linhaTotal">
+<label>Valor a pagar R$:</label><span class="totalNumb txtMax">24,69</span>
+</div>
+<div id="linhaForma">
+<label>Forma de pagamento:</label><span class="totalNumb txtTitR">Valor pago R$:</span>
+</div>
+<div id="linhaTotal">
+<label class="tx">
+				                      		18 - Transferência bancária, Carteira Digital
+				                      	</label><span class="totalNumb">24,69</span>
+</div>
+<div id="linhaTotal">
+<label class="tx">Troco </label><span class="totalNumb">0,00</span>
+</div>
+<div class="spcTop" id="linhaTotal">
+<label class="txtObs">Informação dos Tributos Totais Incidentes
+									(Lei Federal 12.741/2012)&nbsp;R$</label><span class="totalNumb txtObs">2,80</span>
+</div>
+</div>
+</div>
+<div class="txtCenter" id="infos">
+<div data-collapsed="false" data-expanded-icon="carat-u" data-collapsed-icon="carat-d" data-role="collapsible" class="ui-collapsible ui-collapsible-inset ui-corner-all ui-collapsible-themed-content"><h4 class="ui-collapsible-heading"><a href="https://consultadfe.fazenda.rj.gov.br/consultaDFe/paginas/resultadoNfce.faces?cid=1#" class="ui-collapsible-heading-toggle ui-btn ui-icon-carat-u ui-btn-icon-left ui-btn-inherit">Informações gerais da Nota<span class="ui-collapsible-heading-status"> click to collapse contents</span></a></h4><div class="ui-collapsible-content ui-body-inherit" aria-hidden="false">
+
+<ul data-inset="false" data-role="listview" class="ui-listview">
+<li class="ui-li-static ui-body-inherit ui-first-child ui-last-child">
+<strong>EMISSÃO NORMAL</strong>
+<br>
+<br>
+<strong>Número: </strong>228007<strong> Série: </strong>3<strong> Emissão: </strong>18/05/2025 13:09:52-03:00
+								- Via Consumidor 2
+								<br>
+<br>
+<strong>Protocolo de Autorização: </strong>233251167705299       18/05/2025 
+        às
+      13:09:54-03:00<br>
+<br>
+<strong>
+										Ambiente de Produção -
+									
+									Versão XML:
+									4.00
+									- Versão XSLT: 2.07
+								</strong>
+</li>
+</ul>
+</div></div>
+<div data-collapsed="false" data-expanded-icon="carat-u" data-collapsed-icon="carat-d" data-role="collapsible" class="ui-collapsible ui-collapsible-inset ui-corner-all ui-collapsible-themed-content"><h4 class="ui-collapsible-heading"><a href="https://consultadfe.fazenda.rj.gov.br/consultaDFe/paginas/resultadoNfce.faces?cid=1#" class="ui-collapsible-heading-toggle ui-btn ui-icon-carat-u ui-btn-icon-left ui-btn-inherit">Chave de acesso<span class="ui-collapsible-heading-status"> click to collapse contents</span></a></h4><div class="ui-collapsible-content ui-body-inherit" aria-hidden="false">
+
+<ul data-inset="false" data-role="listview" class="ui-listview">
+<li class="ui-li-static ui-body-inherit ui-first-child ui-last-child">
+								Consulte pela Chave de Acesso em
+								
+								http://www.fazenda.rj.gov.br/nfce/consulta<br>
+<br>
+<strong>Chave de acesso:</strong>
+<br>
+<span class="chave">3325 0500 7765 7419 9483 6500 3000 2280 0718 5510 7701</span>
+</li>
+</ul>
+</div></div>
+<div data-collapsed="false" data-expanded-icon="carat-u" data-collapsed-icon="carat-d" data-role="collapsible" class="ui-collapsible ui-collapsible-inset ui-corner-all ui-collapsible-themed-content"><h4 class="ui-collapsible-heading"><a href="https://consultadfe.fazenda.rj.gov.br/consultaDFe/paginas/resultadoNfce.faces?cid=1#" class="ui-collapsible-heading-toggle ui-btn ui-icon-carat-u ui-btn-icon-left ui-btn-inherit">Consumidor<span class="ui-collapsible-heading-status"> click to collapse contents</span></a></h4><div class="ui-collapsible-content ui-body-inherit" aria-hidden="false">
+
+<ul data-inset="false" data-role="listview" class="ui-listview">
+<li class="ui-li-static ui-body-inherit ui-first-child">
+<strong>CPF: </strong>000.000.000-00</li>
+<li class="ui-li-static ui-body-inherit ui-last-child">
+<strong>Nome: </strong>CONSUMIDOR</li>
+</ul>
+</div></div>
+<div data-expanded-icon="carat-u" data-collapsed-icon="carat-d" data-role="collapsible" class="ui-collapsible ui-collapsible-inset ui-corner-all ui-collapsible-themed-content ui-collapsible-collapsed"><h4 class="ui-collapsible-heading ui-collapsible-heading-collapsed"><a href="https://consultadfe.fazenda.rj.gov.br/consultaDFe/paginas/resultadoNfce.faces?cid=1#" class="ui-collapsible-heading-toggle ui-btn ui-icon-carat-d ui-btn-icon-left ui-btn-inherit">Informações de interesse do fisco<span class="ui-collapsible-heading-status"> click to expand contents</span></a></h4><div class="ui-collapsible-content ui-body-inherit ui-collapsible-content-collapsed" aria-hidden="true">
+
+<ul data-inset="false" data-role="listview" class="ui-listview">
+<li class="ui-li-static ui-body-inherit ui-first-child ui-last-child">VLR ICMS Desonerado R$ 6.92</li>
+</ul>
+</div></div>
+</div>
+</div>
+
+			</div>
+		
+		<p id="rodape">Data/Hora da Consulta: 03/06/2025 17:55:08</p>
+		
+		<p>&nbsp;</p>
+		
+		<div id="footer" style="margin-bottom: 10px;">
+			<p>&nbsp;</p>
+		  	<p>&nbsp;</p>
+		</div><script type="text/javascript" src="./Consulta DF-e_files/index.js.faces"></script><script type="text/javascript">RichFaces.jQuery(document).ready(function() {
+new RichFaces.ui.Message("areaDeMensagens",{"globalOnly":true,"isMessages":true} )
+});
+</script>
+	
+	
+</div><div class="ui-loader ui-corner-all ui-body-a ui-loader-default"><span class="ui-icon-loading"></span><h1>loading</h1></div></body><!-- versao:  --><!-- 2 --></html>

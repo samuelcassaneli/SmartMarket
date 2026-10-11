@@ -1,0 +1,41 @@
+{
+  "success": true,
+  "data": {
+    "busca_id": 1,
+    "termo": "leite condensado",
+    "produtos": [
+      {
+        "id": 501,
+        "produto_id": 501,
+        "descricao": "LEITE CONDENSADO ITALAC 395G",
+        "link": "leite-condensado-italac-395g",
+        "imagem": "produtos/7898080642646.png",
+        "codigo_barras": "7898080642646",
+        "preco": "7.49",
+        "preco_original": 7.49,
+        "em_oferta": true,
+        "oferta": { "preco_oferta": 6.79, "preco_antigo": 7.49, "quantidade_minima": 1 },
+        "disponivel": true,
+        "unidade_sigla": "UN",
+        "possui_unidade_diferente": false,
+        "quantidade_unidade_diferente": 1
+      },
+      {
+        "id": 502,
+        "produto_id": 502,
+        "descricao": "BANANA PRATA KG",
+        "link": "banana-prata-kg",
+        "imagem": "https://cdn.exemplo.com/banana.png",
+        "preco": 2.99,
+        "em_oferta": false,
+        "oferta": null,
+        "disponivel": false,
+        "unidade_sigla": "KG",
+        "possui_unidade_diferente": true,
+        "quantidade_unidade_diferente": 0.5
+      },
+      { "id": 503, "descricao": "SEM PRECO", "preco": null }
+    ]
+  },
+  "paginator": { "page": 1, "items_per_page": 52, "total_items": 3, "total_pages": 1 }
+}
