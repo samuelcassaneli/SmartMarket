@@ -69,7 +69,8 @@ data class PriceObservationWithMarket(
     val colorHex: String,
     val price: Double,
     val source: String,
-    val observedAt: Long
+    val observedAt: Long,
+    val note: String = ""
 )
 
 /** Melhor preço atual (mês de referência) de cada produto, com o mercado. */

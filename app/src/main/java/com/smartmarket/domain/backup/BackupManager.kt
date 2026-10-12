@@ -10,6 +10,7 @@ import com.smartmarket.data.db.AppDatabase
 import com.smartmarket.data.prefs.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Calendar
 
 /** Resultado de uma exportação ou importação. */
@@ -17,10 +18,27 @@ data class BackupSummary(val counts: Map<String, Int>, val exportedAt: Long) {
     val products: Int get() = counts["products"] ?: 0
     val purchases: Int get() = counts["purchases"] ?: 0
     val lists: Int get() = counts["shoppingLists"] ?: 0
+    val listItems: Int get() = counts["shoppingListItems"] ?: 0
+    val prices: Int get() = (counts["productPrices"] ?: 0) + (counts["priceObservations"] ?: 0)
+    val markets: Int get() = counts["supermarkets"] ?: 0
+    val pantry: Int get() = counts["pantryItems"] ?: 0
 
-    /** "38 produtos, 5 notas e 3 listas" */
-    fun describe(): String = "$products produtos, $purchases notas e $lists listas"
+    /** "38 produtos, 120 preços, 3 listas (25 itens) e 5 notas" */
+    fun describe(): String = "$products produtos, $prices preços, $lists listas ($listItems itens) e $purchases notas"
+
+    /** Texto detalhado (uma linha por tipo) para a confirmação da importação. */
+    fun details(): String = listOf(
+        "Produtos: $products",
+        "Preços: $prices",
+        "Listas de compras: $lists ($listItems itens)",
+        "Mercados: $markets",
+        "Notas fiscais: $purchases",
+        "Despensa: $pantry itens"
+    ).joinToString("\n")
 }
+
+/** Arquivo lido e conferido, aguardando a confirmação do usuário. */
+data class ImportPreview(val uri: Uri, val summary: BackupSummary)
 
 /**
  * Exporta e importa todas as tabelas do banco em JSON, lendo e escrevendo via
@@ -67,7 +85,10 @@ class BackupManager(
         file.copy(counts = file.computeCounts())
     }
 
-    /** Grava o backup completo em [uri] (criado por CreateDocument ou pela pasta do backup automático). */
+    /**
+     * Grava o backup completo em [uri] (criado por CreateDocument ou pela pasta do backup automático)
+     * e lê o arquivo de volta para conferir que foi gravado inteiro.
+     */
     suspend fun exportTo(uri: Uri): BackupSummary {
         val file = buildBackup()
         val text = BackupCodec.encode(file)
@@ -75,26 +96,79 @@ class BackupManager(
             val stream = runCatching { resolver.openOutputStream(uri, "wt") }.getOrNull()
                 ?: resolver.openOutputStream(uri, "w")
                 ?: throw IllegalStateException("Não foi possível abrir o arquivo para gravar.")
-            stream.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+            stream.use {
+                it.write(text.toByteArray(Charsets.UTF_8))
+                it.flush()
+            }
+        }
+        val written = runCatching { readFile(uri) }.getOrElse {
+            throw IllegalStateException("O arquivo foi gravado incompleto. Tente salvar em outra pasta.")
+        }
+        if (written.computeCounts() != file.computeCounts()) {
+            throw IllegalStateException("O arquivo gravado não confere com os dados. Tente salvar em outra pasta.")
         }
         return BackupSummary(file.counts, file.exportedAt)
     }
 
     // ---------------------------------------------------------------- Importação
 
-    /** Lê e valida o arquivo; substitui TODOS os dados numa transação. */
+    /** Lê e valida o arquivo sem mexer nos dados (para mostrar o que tem antes de restaurar). */
+    suspend fun preview(uri: Uri): ImportPreview {
+        val file = readFile(uri)
+        return ImportPreview(uri, BackupSummary(file.computeCounts(), file.exportedAt))
+    }
+
+    /**
+     * Substitui TODOS os dados pelos do arquivo, numa transação só (se algo falhar, nada muda).
+     * Antes, guarda uma cópia dos dados atuais para [undoImport].
+     */
     suspend fun importFrom(uri: Uri): BackupSummary {
+        val file = readFile(uri)
+        saveSnapshot()
+        restore(file)
+        restoreSettings(file.settings)
+        return currentSummary(file.exportedAt)
+    }
+
+    /** Há cópia dos dados de antes da última importação? */
+    fun hasSnapshot(): Boolean = snapshotFile().exists()
+
+    /** Volta os dados de antes da última importação. */
+    suspend fun undoImport(): BackupSummary {
+        val f = snapshotFile()
+        if (!f.exists()) throw IllegalStateException("Não há importação para desfazer.")
+        val file = BackupCodec.decode(withContext(Dispatchers.IO) { f.readText(Charsets.UTF_8) })
+        restore(file)
+        withContext(Dispatchers.IO) { f.delete() }
+        return currentSummary(file.exportedAt)
+    }
+
+    private suspend fun readFile(uri: Uri): BackupFile {
         val text = withContext(Dispatchers.IO) {
             resolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
                 ?: throw IllegalStateException("Não foi possível ler o arquivo.")
         }
-        val file = BackupCodec.decode(text)
-        restore(file)
-        restoreSettings(file.settings)
-        return BackupSummary(file.computeCounts(), file.exportedAt)
+        return BackupCodec.decode(text)
     }
 
-    suspend fun restore(file: BackupFile) {
+    private fun snapshotFile() = File(File(context.filesDir, "backups"), "antes-da-importacao.json")
+
+    private suspend fun saveSnapshot() {
+        val text = BackupCodec.encode(buildBackup())
+        withContext(Dispatchers.IO) {
+            val f = snapshotFile()
+            f.parentFile?.mkdirs()
+            f.writeText(text, Charsets.UTF_8)
+        }
+    }
+
+    /** Contagem do que está no banco agora (confere que a restauração gravou tudo). */
+    private suspend fun currentSummary(exportedAt: Long): BackupSummary =
+        BackupSummary(buildBackup().computeCounts(), exportedAt)
+
+    suspend fun restore(original: BackupFile) {
+        // linhas órfãs ou duplicadas derrubariam a transação inteira: limpa antes
+        val file = original.sanitized()
         db.withTransaction {
             val sql = db.openHelper.writableDatabase
             // Filhos antes dos pais (as chaves estrangeiras continuam ativas)

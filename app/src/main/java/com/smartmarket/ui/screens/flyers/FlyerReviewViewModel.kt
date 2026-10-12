@@ -13,6 +13,7 @@ import com.smartmarket.data.entity.Product
 import com.smartmarket.data.repo.PriceEntry
 import com.smartmarket.data.repo.PriceRepository
 import com.smartmarket.domain.flyers.OfferText
+import com.smartmarket.domain.matching.BrandGuess
 import com.smartmarket.domain.matching.FuzzyMatcher
 import com.smartmarket.domain.matching.ProductMatcher
 import kotlinx.coroutines.channels.Channel
@@ -33,7 +34,9 @@ data class OfferUi(
     val offer: FlyerOfferWithProduct,
     val description: String,
     val note: String,
-    val inMyList: Boolean
+    val inMyList: Boolean,
+    /** Marca deduzida do texto do encarte em relação ao produto vinculado ("Soya", "Galo"). */
+    val brand: String? = null
 )
 
 data class ReviewUi(
@@ -79,7 +82,7 @@ class FlyerReviewViewModel(
         offers.map { o ->
             val (desc, note) = OfferText.split(o.rawText)
             val pid = o.productId
-            OfferUi(o, desc, note, pid != null && pid in mine)
+            OfferUi(o, desc, note, pid != null && pid in mine, BrandGuess.extract(desc, o.productName))
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -141,11 +144,18 @@ class FlyerReviewViewModel(
             price = u.offer.price,
             source = PriceSource.FLYER,
             observedAt = observedAt,
-            note = u.note
+            note = priceNote(u)
         )
         matcher.learn(u.description, productId, PriceSource.FLYER)
         flyerDao.updateOffer(u.offer.id, OfferStatus.ACCEPTED, productId)
     }
+
+    /** Observação gravada com o preço: marca, data do encarte e condição ("marca Soya · encarte 06/10 · de R$ 9,99"). */
+    private fun priceNote(u: OfferUi): String = listOfNotNull(
+        u.brand?.let { "marca $it" },
+        flyer.value?.fetchedAt?.let { "encarte " + dayMonth(it) },
+        u.note.takeIf { it.isNotBlank() }
+    ).joinToString(" · ")
 
     fun reject(u: OfferUi) {
         viewModelScope.launch { flyerDao.updateOffer(u.offer.id, OfferStatus.REJECTED, u.offer.productId) }
@@ -179,7 +189,7 @@ class FlyerReviewViewModel(
             if (targets.isEmpty()) return@launch
             val observedAt = flyer.value?.fetchedAt ?: System.currentTimeMillis()
             priceRepository.recordPrices(targets.map {
-                PriceEntry(it.offer.productId!!, it.offer.supermarketId, it.offer.price, PriceSource.FLYER, observedAt, it.note)
+                PriceEntry(it.offer.productId!!, it.offer.supermarketId, it.offer.price, PriceSource.FLYER, observedAt, priceNote(it))
             })
             targets.forEach {
                 matcher.learn(it.description, it.offer.productId!!, PriceSource.FLYER)
@@ -225,7 +235,7 @@ class FlyerReviewViewModel(
             }
             val observedAt = flyer.value?.fetchedAt ?: System.currentTimeMillis()
             priceRepository.recordPrices(targets.map {
-                PriceEntry(it.offer.productId!!, it.offer.supermarketId, it.offer.price, PriceSource.FLYER, observedAt, it.note)
+                PriceEntry(it.offer.productId!!, it.offer.supermarketId, it.offer.price, PriceSource.FLYER, observedAt, priceNote(it))
             })
             targets.forEach {
                 matcher.learn(it.description, it.offer.productId!!, PriceSource.FLYER)
@@ -254,3 +264,7 @@ class FlyerReviewViewModel(
         }
     }
 }
+
+/** "06/10" */
+fun dayMonth(millis: Long): String =
+    java.text.SimpleDateFormat("dd/MM", java.util.Locale("pt", "BR")).format(java.util.Date(millis))

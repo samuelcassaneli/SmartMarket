@@ -336,8 +336,38 @@ private fun HistoryCard(state: ProductDetailState) {
                     )
                 }
             LineChart(series = series)
+            Spacer(Modifier.height(Spacing.md))
+            Text("Últimos registros", style = MaterialTheme.typography.titleSmall)
+            state.observations.takeLast(8).asReversed().forEach { o ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = Spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(o.supermarketName, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            listOfNotNull(Fmt.date(o.observedAt), sourceLabel(o.source), o.note.takeIf { it.isNotBlank() })
+                                .joinToString(" · "),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2
+                        )
+                    }
+                    Spacer(Modifier.width(Spacing.sm))
+                    MoneyText(o.price, style = MaterialTheme.typography.titleSmall)
+                }
+            }
         }
     }
+}
+
+private fun sourceLabel(source: String): String? = when (source) {
+    "FLYER" -> "encarte"
+    "NFCE" -> "nota fiscal"
+    "ONLINE" -> "site"
+    "OCR" -> "foto"
+    "MANUAL" -> "manual"
+    else -> null
 }
 
 @Composable

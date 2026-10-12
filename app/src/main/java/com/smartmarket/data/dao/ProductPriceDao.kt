@@ -57,7 +57,7 @@ interface ProductPriceDao {
 
     @Query("""
         SELECT o.id, o.productId, o.supermarketId, s.name AS supermarketName, s.colorHex,
-               o.price, o.source, o.observedAt
+               o.price, o.source, o.observedAt, o.note
         FROM price_observations o
         INNER JOIN supermarkets s ON s.id = o.supermarketId
         WHERE o.productId = :productId

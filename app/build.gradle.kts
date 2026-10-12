@@ -22,6 +22,17 @@ android {
         }
     }
 
+    // Chave fixa no repositório: todo APK do GitHub sai com a mesma assinatura e instala por cima
+    // do anterior sem desinstalar (desinstalar apaga os dados do app).
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("signing/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

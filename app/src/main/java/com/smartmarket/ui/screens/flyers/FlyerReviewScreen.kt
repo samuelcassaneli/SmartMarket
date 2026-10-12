@@ -223,6 +223,7 @@ fun FlyerReviewScreen(flyerId: Long, navController: NavController) {
                 else -> items(ui.offers, key = { it.offer.id }) { u ->
                     OfferCard(
                         u = u,
+                        flyerDate = flyer?.fetchedAt?.let { dayMonth(it) },
                         selectionMode = selectionMode,
                         selected = u.offer.id in selected,
                         onToggle = { vm.toggleSelect(u) },
@@ -300,6 +301,7 @@ private fun Metric(label: String, value: String) {
 @Composable
 private fun OfferCard(
     u: OfferUi,
+    flyerDate: String?,
     selectionMode: Boolean,
     selected: Boolean,
     onToggle: () -> Unit,
@@ -350,6 +352,15 @@ private fun OfferCard(
             }
             if (u.inMyList) Tag("Na sua lista")
             if (u.note.isNotBlank()) Tag(u.note)
+        }
+        val details = listOfNotNull(u.brand?.let { "Marca: $it" }, flyerDate?.let { "Encarte de $it" })
+        if (details.isNotEmpty()) {
+            Text(
+                details.joinToString(" · "),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = Spacing.xs)
+            )
         }
         if (selectionMode) return@AppCard
         Spacer(Modifier.height(Spacing.sm))

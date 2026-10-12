@@ -185,6 +185,12 @@ object FuzzyMatcher {
     private fun bestMatch(token: String, candidates: List<String>): Double =
         candidates.maxOfOrNull { tokenSimilarity(token, it) } ?: 0.0
 
+    /** Palavra que descreve a variante (refinado, integral...), não a marca. */
+    fun isQualifier(word: String): Boolean = normalize(word) in QUALIFIERS
+
+    /** Palavra sem significado próprio (de, kg, unidade, oferta...). */
+    fun isStopWord(word: String): Boolean = normalize(word) in STOP_WORDS
+
     private fun qualifiersOf(tokens: List<String>): Set<String> = tokens.filter { it in QUALIFIERS }.toSet()
 
     private fun isCompatible(a: String, b: String) = COMPATIBLE_QUALIFIERS.any { it.contains(a) && it.contains(b) }

@@ -9,6 +9,7 @@ import com.smartmarket.domain.matching.FuzzyMatcher
 import com.smartmarket.domain.online.MarketSourceRegistry
 import com.smartmarket.domain.online.OnlineOffer
 import com.smartmarket.domain.matching.SaleForm
+import com.smartmarket.domain.matching.BrandGuess
 import com.smartmarket.domain.ai.GeminiModels
 import com.smartmarket.data.dao.PaidItem
 import com.smartmarket.data.entity.Product
@@ -44,7 +45,11 @@ class PriceCheckRunner(private val c: AppContainer) {
             for (o in db.flyerDao().getOffersForFlyerSync(flyerId)) {
                 val pid = o.productId ?: continue
                 val p = products[pid] ?: continue
-                val (_, note) = OfferText.split(o.rawText)
+                val (desc, cond) = OfferText.split(o.rawText)
+                val note = listOfNotNull(
+                    BrandGuess.extract(desc, p.name)?.let { "marca $it" },
+                    cond.takeIf { it.isNotBlank() }
+                ).joinToString(" · ")
                 found += FoundPrice(pid, p.name, o.supermarketId, marketById[o.supermarketId]?.name ?: r.marketName,
                     o.price, origin = "Encarte", note = note)
             }

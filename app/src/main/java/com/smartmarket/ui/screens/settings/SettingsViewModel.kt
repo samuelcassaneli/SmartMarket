@@ -10,6 +10,7 @@ import com.smartmarket.data.prefs.AppSettings
 import com.smartmarket.data.prefs.SettingsRepository
 import com.smartmarket.domain.backup.BackupFormatException
 import com.smartmarket.domain.backup.BackupManager
+import com.smartmarket.domain.backup.ImportPreview
 import com.smartmarket.work.AutoBackupWorker
 import com.smartmarket.domain.ai.GeminiClient
 import com.smartmarket.data.entity.FlyerKind
@@ -190,9 +191,34 @@ class SettingsViewModel(
         _messages.tryEmit("Backup salvo: ${summary.describe()}")
     }
 
-    fun importBackup(uri: Uri) = runBusy {
-        val summary = backup.importFrom(uri)
-        _messages.tryEmit("Backup restaurado: ${summary.describe()}")
+    private val _importPreview = MutableStateFlow<ImportPreview?>(null)
+    /** Arquivo escolhido e conferido, esperando o usuário confirmar a restauração. */
+    val importPreview: StateFlow<ImportPreview?> = _importPreview.asStateFlow()
+
+    private val _canUndoImport = MutableStateFlow(backup.hasSnapshot())
+    val canUndoImport: StateFlow<Boolean> = _canUndoImport.asStateFlow()
+
+    /** Lê o arquivo e mostra o que tem nele antes de apagar qualquer coisa. */
+    fun previewImport(uri: Uri) = runBusy {
+        _importPreview.value = backup.preview(uri)
+    }
+
+    fun cancelImport() { _importPreview.value = null }
+
+    fun confirmImport() {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = null
+        runBusy {
+            val summary = backup.importFrom(preview.uri)
+            _canUndoImport.value = backup.hasSnapshot()
+            _messages.tryEmit("Backup restaurado: ${summary.describe()}")
+        }
+    }
+
+    fun undoImport() = runBusy {
+        val summary = backup.undoImport()
+        _canUndoImport.value = backup.hasSnapshot()
+        _messages.tryEmit("Dados de antes da importação de volta: ${summary.describe()}")
     }
 
     private fun runBusy(block: suspend () -> Unit) {

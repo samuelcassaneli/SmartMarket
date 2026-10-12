@@ -104,8 +104,10 @@ fun SettingsScreen(navController: NavController) {
     val markets by vm.markets.collectAsStateWithLifecycle()
     val settings by vm.state.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
+    val importPreview by vm.importPreview.collectAsStateWithLifecycle()
+    val canUndoImport by vm.canUndoImport.collectAsStateWithLifecycle()
+    var confirmUndo by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
-    var confirmImport by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(vm) { vm.messages.collect { snackbar.showSnackbar(it) } }
 
@@ -114,7 +116,7 @@ fun SettingsScreen(navController: NavController) {
         if (uri != null) vm.exportBackup(uri)
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) vm.importBackup(uri)
+        if (uri != null) vm.previewImport(uri)
     }
     val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) vm.enableAutoBackup(uri)
@@ -221,7 +223,9 @@ fun SettingsScreen(navController: NavController) {
                 BackupCard(
                     busy = busy,
                     onExport = { exportLauncher.launch(defaultBackupName()) },
-                    onImport = { confirmImport = true }
+                    onImport = { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
+                    canUndo = canUndoImport,
+                    onUndo = { confirmUndo = true }
                 )
             }
 
@@ -230,14 +234,28 @@ fun SettingsScreen(navController: NavController) {
         }
     }
 
-    if (confirmImport) {
+    importPreview?.let { preview ->
+        val s = preview.summary
+        val date = SimpleDateFormat("dd/MM/yyyy 'às' HH:mm", Locale("pt", "BR")).format(Date(s.exportedAt))
         ConfirmDialog(
-            title = "Restaurar backup?",
-            text = "Todos os dados atuais (listas, preços, notas, despensa) serão apagados e substituídos pelos do arquivo. Não dá para desfazer.",
-            confirmLabel = "Escolher arquivo",
+            title = "Restaurar este backup?",
+            text = "Backup de $date com:\n\n${s.details()}\n\n" +
+                "Os dados atuais serão substituídos por estes. Uma cópia dos dados atuais fica guardada " +
+                "e dá para desfazer em Configurações > Backup.",
+            confirmLabel = "Restaurar",
             destructive = true,
-            onConfirm = { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
-            onDismiss = { confirmImport = false }
+            onConfirm = { vm.confirmImport() },
+            onDismiss = { vm.cancelImport() }
+        )
+    }
+    if (confirmUndo) {
+        ConfirmDialog(
+            title = "Desfazer importação?",
+            text = "Os dados voltam a ser os de antes da última importação.",
+            confirmLabel = "Desfazer",
+            destructive = true,
+            onConfirm = { confirmUndo = false; vm.undoImport() },
+            onDismiss = { confirmUndo = false }
         )
     }
 }
@@ -497,7 +515,7 @@ private fun AutomationCard(
 }
 
 @Composable
-private fun BackupCard(busy: Boolean, onExport: () -> Unit, onImport: () -> Unit) {
+private fun BackupCard(busy: Boolean, onExport: () -> Unit, onImport: () -> Unit, canUndo: Boolean, onUndo: () -> Unit) {
     SettingsCard(
         Icons.Filled.CloudUpload,
         "Exportar e importar",
@@ -514,6 +532,14 @@ private fun BackupCard(busy: Boolean, onExport: () -> Unit, onImport: () -> Unit
                 Spacer(Modifier.width(Spacing.xs))
                 Text("Importar")
             }
+        }
+        Text(
+            "Ao importar, o app mostra o que tem no arquivo antes de restaurar.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (canUndo) {
+            TextButton(onClick = onUndo, enabled = !busy) { Text("Desfazer última importação") }
         }
     }
 }
@@ -598,7 +624,7 @@ private fun appVersion(context: Context): String = runCatching {
 }.getOrNull() ?: "—"
 
 private fun defaultBackupName(): String =
-    "smartmarket-backup-" + SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date()) + ".json"
+    "smartmarket-backup-" + SimpleDateFormat("yyyy-MM-dd-HHmm", Locale.ROOT).format(Date()) + ".json"
 
 /** "content://.../tree/primary%3ADocuments%2FBackups" -> "Documents/Backups" */
 private fun folderLabel(treeUri: String): String = runCatching {

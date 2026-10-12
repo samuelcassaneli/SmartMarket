@@ -272,3 +272,60 @@ object BackupRetention {
     fun toDelete(names: List<String>, keep: Int = 4): List<String> =
         names.filter(::isBackupName).sortedDescending().drop(keep)
 }
+
+// ---------------------------------------------------------------- Limpeza antes de restaurar
+
+/**
+ * Remove o que impediria a restauração inteira de passar (o banco recusa a transação toda por uma linha
+ * só): itens que apontam para produto, lista, mercado ou nota que não existe no arquivo, duplicatas de
+ * chaves únicas e chave de nota em branco. Referências opcionais quebradas viram null em vez de sumir.
+ */
+fun BackupFile.sanitized(): BackupFile {
+    val marketIds = supermarkets.map { it.id }.toSet()
+    val productIds = products.map { it.id }.toSet()
+    val listIds = shoppingLists.map { it.id }.toSet()
+
+    val cleanPurchases = purchases
+        .map { p ->
+            p.copy(
+                accessKey = p.accessKey?.trim()?.takeIf { it.isNotEmpty() },
+                supermarketId = p.supermarketId?.takeIf { it in marketIds }
+            )
+        }
+        .distinctBy { it.id }
+        .let { list ->
+            val seen = mutableSetOf<String>()
+            list.map { p -> if (p.accessKey != null && !seen.add(p.accessKey)) p.copy(accessKey = null) else p }
+        }
+    val purchaseIds = cleanPurchases.map { it.id }.toSet()
+    val cleanFlyers = flyers.filter { it.supermarketId in marketIds }
+        .distinctBy { it.id }
+        .distinctBy { it.supermarketId to it.contentHash }
+    val flyerIds = cleanFlyers.map { it.id }.toSet()
+
+    return copy(
+        supermarkets = supermarkets.distinctBy { it.id },
+        products = products.distinctBy { it.id },
+        productAliases = productAliases.filter { it.productId in productIds }
+            .distinctBy { it.id }.distinctBy { it.normalizedAlias },
+        productPrices = productPrices.filter { it.productId in productIds && it.supermarketId in marketIds }
+            .sortedByDescending { it.updatedAt }
+            .distinctBy { listOf(it.productId, it.supermarketId, it.referenceMonth.toLong(), it.referenceYear.toLong()) }
+            .distinctBy { it.id },
+        priceObservations = priceObservations.filter { it.productId in productIds && it.supermarketId in marketIds }
+            .distinctBy { it.id },
+        shoppingLists = shoppingLists.distinctBy { it.id },
+        shoppingListItems = shoppingListItems.filter { it.shoppingListId in listIds && it.productId in productIds }
+            .distinctBy { it.id },
+        purchases = cleanPurchases,
+        purchaseItems = purchaseItems.filter { it.purchaseId in purchaseIds }
+            .map { it.copy(productId = it.productId?.takeIf { pid -> pid in productIds }) }
+            .distinctBy { it.id },
+        pantryItems = pantryItems.filter { it.productId in productIds }.distinctBy { it.productId },
+        priceAlerts = priceAlerts.filter { it.productId in productIds }.distinctBy { it.productId }.distinctBy { it.id },
+        flyers = cleanFlyers,
+        flyerOffers = flyerOffers.filter { it.flyerId in flyerIds && it.supermarketId in marketIds }
+            .map { it.copy(productId = it.productId?.takeIf { pid -> pid in productIds }) }
+            .distinctBy { it.id }
+    )
+}
