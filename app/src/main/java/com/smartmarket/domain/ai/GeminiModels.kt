@@ -36,7 +36,19 @@ object GeminiModels {
         4. Ignore títulos de seção (AÇOUGUE, MERCEARIA...), slogans, datas, avisos legais, logotipos,
            telefones, endereços e textos de validade.
         5. Se o mesmo produto aparecer duas vezes, retorne uma vez só.
-        6. Responda somente com o JSON no formato pedido.
+        6. PREÇO CERTO NO PRODUTO CERTO (o erro mais grave é trocar preço entre produtos vizinhos):
+           - O encarte é uma grade de cards (quadros). Nome, foto e preço de um produto ficam DENTRO do mesmo card.
+           - O preço de um produto está na mesma coluna do nome (faixa horizontal x sobreposta) e logo abaixo ou ao
+             lado dele, antes do nome do próximo produto. Nunca use o preço de um card vizinho (coluna ao lado,
+             card de cima ou de baixo).
+           - Cada preço pertence a um único produto. Se dois produtos parecem ter o mesmo preço, confira se não
+             está pegando o preço do vizinho.
+           - Preço quebrado em pedaços ("4" + ",99", "R$" + "4,99") é um número só. O preço principal é o de fonte maior.
+           - Confira se o valor faz sentido para o produto (ex.: leite 1 L custa uns R$ 4 a 8; macarrão 500 g uns
+             R$ 2 a 7; óleo 900 ml uns R$ 5 a 12; carne/kg costuma passar de R$ 15). Se não fizer, você
+             provavelmente pegou o preço do produto ao lado: procure o preço correto no card do produto.
+           - Se não tiver certeza de qual preço é de qual produto, NÃO inclua o produto.
+        7. Responda somente com o JSON no formato pedido.
     """.trimIndent()
 
     /** Schema de resposta (subconjunto OpenAPI aceito pelo Gemini). */
@@ -59,12 +71,13 @@ object GeminiModels {
      */
     fun pageTextPrompt(lines: List<OcrLine>, marketName: String?): String {
         val body = lines.sortedWith(compareBy({ (it.box?.top ?: 0) / 20 }, { it.box?.left ?: 0 }))
-            .joinToString("\n") { l -> "${(l.box?.left ?: 0) / 4},${(l.box?.top ?: 0) / 4} | ${l.text}" }
+            .joinToString("\n") { l -> lineWithBox(l) }
         return buildString {
             append("Página de encarte")
             if (!marketName.isNullOrBlank()) append(" do mercado ").append(marketName)
-            append(". Abaixo, o texto da página com a posição de cada linha (x,y em pontos, origem no canto superior esquerdo). ")
-            append("Linhas próximas formam o card de um produto.\n\n")
+            append(". Abaixo, o texto da página. Cada linha vem como \"x,y,largura,altura | texto\" ")
+            append("(pontos, origem no canto superior esquerdo; altura grande = fonte grande, típica de preço). ")
+            append("Linhas com faixas x sobrepostas e y próximos formam o card de um produto; use isso para ligar cada preço ao seu produto.\n\n")
             append(body)
         }
     }
@@ -73,18 +86,27 @@ object GeminiModels {
     fun multiPageTextPrompt(pages: List<Pair<Int, List<OcrLine>>>, marketName: String?): String = buildString {
         append("Páginas de encarte")
         if (!marketName.isNullOrBlank()) append(" do mercado ").append(marketName)
-        append(". Para cada página, o texto com a posição de cada linha (x,y em pontos, origem no canto superior esquerdo). ")
-        append("Linhas próximas formam o card de um produto. Informe em \"pagina\" o número da página de cada oferta.\n")
+        append(". Para cada página, o texto com cada linha no formato \"x,y,largura,altura | texto\" ")
+        append("(pontos, origem no canto superior esquerdo; altura grande = fonte grande, típica de preço). ")
+        append("Linhas com faixas x sobrepostas e y próximos formam o card de um produto; use isso para ligar cada preço ao seu produto. ")
+        append("Informe em \"pagina\" o número da página de cada oferta.\n")
         for ((index, lines) in pages) {
             append("\n=== Página ").append(index + 1).append(" ===\n")
             lines.sortedWith(compareBy({ (it.box?.top ?: 0) / 20 }, { it.box?.left ?: 0 }))
-                .forEach { l -> append((l.box?.left ?: 0) / 4).append(',').append((l.box?.top ?: 0) / 4).append(" | ").append(l.text).append('\n') }
+                .forEach { l -> append(lineWithBox(l)).append('\n') }
         }
+    }
+
+    /** "x,y,largura,altura | texto" em pontos (as coordenadas do PDF vêm multiplicadas por 4). */
+    fun lineWithBox(l: OcrLine): String {
+        val b = l.box ?: return "0,0,0,0 | ${l.text}"
+        return "${b.left / 4},${b.top / 4},${b.width / 4},${b.height / 4} | ${l.text}"
     }
 
     fun imagePrompt(marketName: String?): String =
         "Imagem de uma página de encarte" + (if (!marketName.isNullOrBlank()) " do mercado $marketName" else "") +
-            ". Extraia todos os produtos em oferta com os preços."
+            ". Extraia todos os produtos em oferta com os preços. Para cada produto, use só o preço que está dentro " +
+            "do mesmo card (mesma moldura/fundo, junto da foto e do nome), nunca o do card vizinho."
 
     /**
      * Escolhe o melhor modelo "flash" disponível na conta: estável antes de preview/experimental,

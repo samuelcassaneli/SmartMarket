@@ -28,6 +28,20 @@ interface FlyerDao {
     """)
     fun getFlyers(): Flow<List<FlyerWithMarket>>
 
+    /** Ofertas não recusadas dos encartes recentes (para a busca). */
+    @Query("""
+        SELECT o.id AS offerId, o.flyerId AS flyerId, f.supermarketId AS supermarketId, s.name AS marketName,
+               s.colorHex AS colorHex, o.rawText AS rawText, o.price AS price, f.fetchedAt AS fetchedAt,
+               o.status AS status, p.name AS productName
+        FROM flyer_offers o
+        INNER JOIN flyers f ON f.id = o.flyerId
+        INNER JOIN supermarkets s ON s.id = f.supermarketId
+        LEFT JOIN products p ON p.id = o.productId
+        WHERE o.status != 'REJECTED' AND f.fetchedAt >= :since
+        ORDER BY f.fetchedAt DESC
+    """)
+    suspend fun getRecentOffers(since: Long): List<FlyerOfferHit>
+
     @Query("""
         SELECT o.id, o.flyerId, o.supermarketId, s.name AS supermarketName, o.productId, p.name AS productName,
                o.rawText, o.price, o.confidence, o.status

@@ -66,7 +66,9 @@ class FlyerInterpreter(
                             null
                         }
                         if (fromAi != null) aiPages.addAndGet(b.pages.size)
-                        val out = fromAi ?: b.pages.flatMap { EncarteParser.parsePage(it.lines, it.index, marketNames) }
+                        val local = b.pages.flatMap { EncarteParser.parsePage(it.lines, it.index, marketNames) }
+                        // a IA às vezes pega o preço do card vizinho: confere com a leitura pela posição
+                        val out = fromAi?.let { AiPriceCheck.reconcile(it, local) } ?: local
                         onProgress(done.addAndGet(b.pages.size), pages.size, !broken.get())
                         out
                     }

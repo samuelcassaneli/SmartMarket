@@ -1,5 +1,10 @@
 package com.smartmarket.ui.screens.search
 
+import com.smartmarket.data.dao.FlyerDao
+import com.smartmarket.data.dao.FlyerOfferHit
+import com.smartmarket.domain.flyers.OfferText
+import com.smartmarket.domain.matching.BrandGuess
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.smartmarket.data.dao.BestPrice
@@ -48,10 +53,14 @@ import kotlinx.coroutines.withContext
 enum class SearchFilter(val label: String) {
     ALL("Tudo"),
     LOCAL("Meus produtos"),
+    FLYERS("Nos encartes"),
     ONLINE("Nos mercados")
 }
 
 data class LocalResult(val product: Product, val bestPrice: BestPrice?)
+
+/** Oferta de encarte que casa com a busca. */
+data class FlyerResult(val hit: FlyerOfferHit, val description: String, val note: String, val brand: String?)
 
 /** Oferta pronta para exibir: com o mercado e o preço por unidade já calculado. */
 data class OfferUi(
@@ -100,6 +109,7 @@ data class SearchUiState(
     val filter: SearchFilter = SearchFilter.ALL,
     val localLoading: Boolean = false,
     val localResults: List<LocalResult> = emptyList(),
+    val flyerResults: List<FlyerResult> = emptyList(),
     /** Termo da última busca online (null = ainda não buscou). */
     val onlineTerm: String? = null,
     val sections: List<MarketSectionUi> = emptyList(),
@@ -117,6 +127,7 @@ class SearchViewModel(
     productPriceDao: ProductPriceDao,
     private val shoppingListDao: ShoppingListDao,
     private val purchaseDao: PurchaseDao,
+    private val flyerDao: FlyerDao,
     private val priceRepository: PriceRepository,
     private val productMatcher: ProductMatcher,
     private val registry: MarketSourceRegistry,
@@ -211,15 +222,39 @@ class SearchViewModel(
 
     private suspend fun runLocal(term: String) {
         if (term.isBlank()) {
-            _state.update { it.copy(localResults = emptyList(), localLoading = false) }
+            _state.update { it.copy(localResults = emptyList(), flyerResults = emptyList(), localLoading = false) }
             return
         }
         val all = _products.value
         val results = withContext(Dispatchers.Default) { searchLocal(term, all) }
+        val offers = runCatching { flyerDao.getRecentOffers(System.currentTimeMillis() - FLYER_WINDOW) }.getOrDefault(emptyList())
+        val flyerHits = withContext(Dispatchers.Default) { searchFlyers(term, offers) }
         if (_state.value.query.trim() != term.trim() && _state.value.query.isNotBlank()) return // termo já mudou
         _state.update { s ->
-            s.copy(localResults = results.map { LocalResult(it, bestPrices[it.id]) }, localLoading = false)
+            s.copy(
+                localResults = results.map { LocalResult(it, bestPrices[it.id]) },
+                flyerResults = flyerHits,
+                localLoading = false
+            )
         }
+    }
+
+    /** Ofertas dos encartes que contêm todas as palavras da busca (ou casam pelo fuzzy), mais baratas primeiro. */
+    private fun searchFlyers(term: String, offers: List<FlyerOfferHit>): List<FlyerResult> {
+        val nTerm = FuzzyMatcher.normalize(term)
+        val tokens = nTerm.split(' ').filter { it.isNotBlank() }
+        if (tokens.isEmpty()) return emptyList()
+        return offers.asSequence()
+            .mapNotNull { h ->
+                val (desc, note) = OfferText.split(h.rawText)
+                val hay = FuzzyMatcher.normalize(desc + " " + (h.productName ?: ""))
+                val ok = tokens.all { hay.contains(it) } || FuzzyMatcher.calculateAffinity(desc, term) >= FuzzyMatcher.AUTO_MATCH_THRESHOLD
+                if (!ok) null else FlyerResult(h, desc, note, BrandGuess.extract(desc, h.productName ?: term))
+            }
+            .distinctBy { "${it.hit.supermarketId}|${FuzzyMatcher.normalize(it.description)}|${it.hit.price}" }
+            .sortedWith(compareBy<FlyerResult> { it.hit.price }.thenByDescending { it.hit.fetchedAt })
+            .take(60)
+            .toList()
     }
 
     private fun searchLocal(term: String, all: List<Product>): List<Product> {
@@ -419,6 +454,9 @@ class SearchViewModel(
     }
 
     companion object {
+        /** Encartes dos últimos 21 dias entram na busca. */
+        private const val FLYER_WINDOW = 21L * 24 * 60 * 60 * 1000
+
         fun newListName(): String = "Compras de ${Fmt.monthName(YearMonth.now().month)}"
     }
 }

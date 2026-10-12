@@ -13,6 +13,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material3.FilterChip
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -174,6 +179,8 @@ fun FlyersScreen(navController: NavController) {
     val flyers by vm.flyers.collectAsStateWithLifecycle()
     val markets by vm.markets.collectAsStateWithLifecycle()
     val sync by vm.sync.collectAsStateWithLifecycle()
+    var marketFilter by rememberSaveable { mutableStateOf<Long?>(null) }
+    var onlyPending by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.events.collect { snackbar.showSnackbar(it) } }
 
@@ -205,8 +212,36 @@ fun FlyersScreen(navController: NavController) {
                     )
                 }
                 else -> {
-                    item(key = "header") { SectionHeader("Baixados") }
-                    items(list, key = { it.id }) { f ->
+                    val marketsInList = list.distinctBy { it.supermarketId }.map { it.supermarketId to it.supermarketName }
+                    val shown = list.filter { f ->
+                        (marketFilter == null || f.supermarketId == marketFilter) && (!onlyPending || f.pendingCount > 0)
+                    }
+                    item(key = "header") { SectionHeader("Baixados (${list.size})") }
+                    item(key = "filters") {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                            item {
+                                FilterChip(
+                                    selected = onlyPending,
+                                    onClick = { onlyPending = !onlyPending },
+                                    label = { Text("Com pendentes (${list.count { it.pendingCount > 0 }})") }
+                                )
+                            }
+                            item {
+                                FilterChip(selected = marketFilter == null, onClick = { marketFilter = null }, label = { Text("Todos") })
+                            }
+                            items(marketsInList, key = { it.first }) { (id, name) ->
+                                FilterChip(
+                                    selected = marketFilter == id,
+                                    onClick = { marketFilter = if (marketFilter == id) null else id },
+                                    label = { Text("$name (${list.count { it.supermarketId == id }})") }
+                                )
+                            }
+                        }
+                    }
+                    if (shown.isEmpty()) item(key = "none") {
+                        EmptyState(icon = Icons.Default.Newspaper, title = "Nenhum encarte neste filtro", message = "Troque o filtro acima.")
+                    }
+                    items(shown, key = { it.id }) { f ->
                         FlyerRow(
                             flyer = f,
                             colorHex = markets[f.supermarketId]?.colorHex,

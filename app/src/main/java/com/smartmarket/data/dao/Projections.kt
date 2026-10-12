@@ -162,3 +162,17 @@ data class PaidPrice(val productId: Long, val price: Double, val at: Long)
 
 /** Item de nota de um produto (para saber como ele é vendido). */
 data class PaidItem(val productId: Long, val description: String, val unit: String, val price: Double)
+
+/** Oferta de encarte encontrada na busca. */
+data class FlyerOfferHit(
+    val offerId: Long,
+    val flyerId: Long,
+    val supermarketId: Long,
+    val marketName: String,
+    val colorHex: String,
+    val rawText: String,
+    val price: Double,
+    val fetchedAt: Long,
+    val status: String,
+    val productName: String?
+)

@@ -322,6 +322,38 @@ fun LocalProductRow(result: LocalResult, onClick: () -> Unit, modifier: Modifier
     }
 }
 
+@Composable
+fun FlyerResultRow(result: FlyerResult, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val h = result.hit
+    AppCard(
+        modifier = modifier.fillMaxWidth(),
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.md)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            com.smartmarket.ui.components.MarketAvatar(h.marketName, h.colorHex, size = 36.dp)
+            Spacer(Modifier.width(Spacing.md))
+            Column(Modifier.weight(1f)) {
+                Text(result.description, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    listOfNotNull(
+                        h.marketName,
+                        "encarte " + com.smartmarket.ui.components.Fmt.dateShort(h.fetchedAt),
+                        result.brand?.let { "marca $it" },
+                        result.note.takeIf { it.isNotBlank() }
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(Spacing.sm))
+            MoneyText(h.price)
+        }
+    }
+}
+
 // ---------------------------------------------------------------- Histórico
 
 @Composable

@@ -42,7 +42,8 @@ class GeminiModelsTest {
     @Test
     fun `prompt de texto leva posicoes`() {
         val p = GeminiModels.pageTextPrompt(listOf(OcrLine("Alho a granel", Box(2428, 7064, 3016, 7124)), OcrLine("R$21,90", Box(3388, 5980, 4000, 6252))), "Atacadão")
-        assertTrue(p.contains("607,1766 | Alho a granel"))
+        assertTrue(p.contains("607,1766,147,15 | Alho a granel"))
+        assertTrue(p.contains("847,1495,153,68 | R$21,90"))
         assertTrue(p.contains("Atacadão"))
     }
 

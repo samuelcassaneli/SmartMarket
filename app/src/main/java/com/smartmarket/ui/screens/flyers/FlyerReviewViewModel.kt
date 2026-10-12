@@ -61,6 +61,11 @@ class FlyerReviewViewModel(
         .map { list -> list.firstOrNull { it.id == flyerId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    /** Encartes lidos (para trocar de encarte sem voltar à lista). */
+    val siblings: StateFlow<List<FlyerWithMarket>> = flyerDao.getFlyers()
+        .map { list -> list.filter { it.status != com.smartmarket.data.entity.FlyerStatus.FAILED } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val products: StateFlow<List<Product>> = productDao.getAllProducts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

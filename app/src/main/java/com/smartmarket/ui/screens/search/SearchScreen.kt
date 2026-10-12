@@ -59,6 +59,7 @@ import com.smartmarket.ui.navigation.Routes
 import com.smartmarket.ui.theme.Spacing
 
 private const val LOCAL_PREVIEW = 4
+private const val FLYER_PREVIEW = 5
 private const val OFFERS_PREVIEW = 6
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,6 +72,7 @@ fun SearchScreen(initialQuery: String, navController: NavController) {
             productPriceDao = c.db.productPriceDao(),
             shoppingListDao = c.db.shoppingListDao(),
             purchaseDao = c.db.purchaseDao(),
+            flyerDao = c.db.flyerDao(),
             priceRepository = c.priceRepository,
             productMatcher = c.productMatcher,
             registry = MarketSourceRegistry.get(c.httpClient, c.settings),
@@ -135,7 +137,7 @@ fun SearchScreen(initialQuery: String, navController: NavController) {
                         )
                     }
                 }
-                if (state.query.isNotBlank() && state.filter != SearchFilter.LOCAL && state.hasOnlineMarkets) {
+                if (state.query.isNotBlank() && state.filter in setOf(SearchFilter.ALL, SearchFilter.ONLINE) && state.hasOnlineMarkets) {
                     FilledTonalButton(
                         onClick = searchOnline,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
@@ -165,7 +167,7 @@ fun SearchScreen(initialQuery: String, navController: NavController) {
                     )
                 } else {
                     // ------------------------------------------------ Meus produtos
-                    if (state.filter != SearchFilter.ONLINE) {
+                    if (state.filter in setOf(SearchFilter.ALL, SearchFilter.LOCAL)) {
                         val showAll = state.filter == SearchFilter.LOCAL
                         val visible = if (showAll) state.localResults else state.localResults.take(LOCAL_PREVIEW)
                         item(key = "local-header") {
@@ -189,8 +191,33 @@ fun SearchScreen(initialQuery: String, navController: NavController) {
                         }
                     }
 
+                    // ------------------------------------------------ Nos encartes
+                    if (state.filter in setOf(SearchFilter.ALL, SearchFilter.FLYERS)) {
+                        val showAll = state.filter == SearchFilter.FLYERS
+                        val visible = if (showAll) state.flyerResults else state.flyerResults.take(FLYER_PREVIEW)
+                        item(key = "flyer-header") {
+                            SectionHeader(
+                                title = "Nos encartes",
+                                actionLabel = if (!showAll && state.flyerResults.size > FLYER_PREVIEW) "Ver todos (${state.flyerResults.size})" else null,
+                                onAction = { vm.setFilter(SearchFilter.FLYERS) }
+                            )
+                        }
+                        if (visible.isEmpty()) {
+                            item(key = "flyer-empty") {
+                                Text(
+                                    if (state.localLoading) "Procurando…" else "Nenhuma oferta nos encartes das últimas 3 semanas.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        items(visible, key = { "flyer-${it.hit.offerId}" }) { r ->
+                            FlyerResultRow(r, onClick = { navController.navigate(Routes.flyerReview(r.hit.flyerId)) })
+                        }
+                    }
+
                     // ------------------------------------------------ Nos mercados
-                    if (state.filter != SearchFilter.LOCAL) {
+                    if (state.filter in setOf(SearchFilter.ALL, SearchFilter.ONLINE)) {
                         item(key = "online-header") { SectionHeader(title = "Nos mercados") }
                         val term = state.query.trim()
                         when {

@@ -12,6 +12,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.FilterChip
+import com.smartmarket.data.dao.FlyerWithMarket
+import com.smartmarket.ui.navigation.Routes
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -89,6 +94,13 @@ fun FlyerReviewScreen(flyerId: Long, navController: NavController) {
         )
     }
     val flyer by vm.flyer.collectAsStateWithLifecycle()
+    val siblings by vm.siblings.collectAsStateWithLifecycle()
+    val openFlyer: (Long) -> Unit = { id ->
+        if (id != flyerId) navController.navigate(Routes.flyerReview(id)) {
+            popUpTo(Routes.FLYER_REVIEW) { inclusive = true }
+        }
+    }
+    val nextPending = siblings.firstOrNull { it.id != flyerId && it.pendingCount > 0 }
     val ui by vm.ui.collectAsStateWithLifecycle()
     val filter by vm.filter.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
@@ -176,6 +188,9 @@ fun FlyerReviewScreen(flyerId: Long, navController: NavController) {
             contentPadding = PaddingValues(start = Spacing.screen, end = Spacing.screen, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(Spacing.md)
         ) {
+            if (siblings.size > 1 && !selectionMode) {
+                item(key = "switcher") { FlyerSwitcher(siblings, flyerId, openFlyer) }
+            }
             item(key = "summary") {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.md), modifier = Modifier.padding(top = Spacing.sm)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xl)) {
@@ -215,7 +230,14 @@ fun FlyerReviewScreen(flyerId: Long, navController: NavController) {
                     if (query.isNotBlank()) {
                         EmptyState(Icons.Default.SearchOff, "Nada encontrado", "Nenhum texto do encarte contém \"$query\".")
                     } else when (filter) {
-                        OfferFilter.PENDING -> EmptyState(Icons.Default.DoneAll, "Tudo revisado", "Não há ofertas pendentes neste encarte.")
+                        OfferFilter.PENDING -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                            EmptyState(Icons.Default.DoneAll, "Tudo revisado", "Não há ofertas pendentes neste encarte.")
+                            if (nextPending != null) {
+                                FilledTonalButton(onClick = { openFlyer(nextPending.id) }) {
+                                    Text("Próximo: ${nextPending.supermarketName} (${nextPending.pendingCount} pendentes)")
+                                }
+                            }
+                        }
                         OfferFilter.MY_LIST -> EmptyState(Icons.Default.SearchOff, "Nada da sua lista", "Nenhuma oferta deste encarte é de produto das suas listas atuais.")
                         OfferFilter.ALL -> EmptyState(Icons.Default.SearchOff, "Sem ofertas", "Não encontramos ofertas com preço neste encarte.")
                     }
@@ -395,6 +417,40 @@ private fun OfferCard(
                     TextButton(onClick = onLink) { Text("Trocar produto") }
                 }
             }
+        }
+    }
+}
+
+/** Faixa com os encartes lidos: troca de encarte direto, sem voltar à lista. */
+@Composable
+private fun FlyerSwitcher(flyers: List<FlyerWithMarket>, currentId: Long, onOpen: (Long) -> Unit) {
+    val state = rememberLazyListState()
+    LaunchedEffect(currentId, flyers.size) {
+        val i = flyers.indexOfFirst { it.id == currentId }
+        if (i > 0) state.scrollToItem(i - 1)
+    }
+    LazyRow(
+        state = state,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm)
+    ) {
+        items(flyers, key = { it.id }) { f ->
+            FilterChip(
+                selected = f.id == currentId,
+                onClick = { onOpen(f.id) },
+                label = {
+                    Text(
+                        buildString {
+                            append(f.supermarketName).append(" · ").append(dayMonth(f.fetchedAt))
+                            if (f.pendingCount > 0) append(" · ").append(f.pendingCount)
+                        },
+                        maxLines = 1
+                    )
+                },
+                leadingIcon = if (f.pendingCount == 0 && f.offerCount > 0) {
+                    { Icon(Icons.Default.DoneAll, contentDescription = "Revisado", modifier = Modifier.size(16.dp)) }
+                } else null
+            )
         }
     }
 }
