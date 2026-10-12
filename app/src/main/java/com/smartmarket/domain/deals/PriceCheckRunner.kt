@@ -7,6 +7,11 @@ import com.smartmarket.domain.flyers.FlyerSyncResult
 import com.smartmarket.domain.flyers.OfferText
 import com.smartmarket.domain.matching.FuzzyMatcher
 import com.smartmarket.domain.online.MarketSourceRegistry
+import com.smartmarket.domain.online.OnlineOffer
+import com.smartmarket.domain.matching.SaleForm
+import com.smartmarket.domain.ai.GeminiModels
+import com.smartmarket.data.dao.PaidItem
+import com.smartmarket.data.entity.Product
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -45,31 +50,44 @@ class PriceCheckRunner(private val c: AppContainer) {
             }
         }
 
-        // 4) busca nos sites dos mercados (Atacadão, Spani) para os produtos acompanhados
+        // 4) busca nos sites dos mercados (Atacadão, Spani) para os produtos acompanhados.
+        //    Só vale o MESMO produto: mesma forma de venda (granel x pacote) e mesmo tamanho; com IA ligada, ela confere.
         val registry = MarketSourceRegistry.get(c.httpClient, c.settings)
         val bindings = registry.bind(markets)
         var checked = 0
         val online = mutableListOf<PriceEntry>()
         if (bindings.isNotEmpty()) {
+            val paidItems = db.purchaseDao().getPaidItems().groupBy { it.productId }.mapValues { it.value.first() }
+            val ai = AiChecker().also { it.init() }
             for (pid in tracked.take(MAX_ONLINE_PRODUCTS)) {
                 val p = products[pid] ?: continue
                 progress.update("Consultando preços: ${p.name}")
+                val paid = paidItems[pid]
+                val form = SaleForm.ofProduct(p.name, p.unit, paid?.description, paid?.unit)
+                val results = mutableListOf<Triple<Long, String, OnlineOffer>>()
                 for (b in bindings) {
-                    val offers = try {
-                        registry.search(b.source, p.name)
+                    try {
+                        registry.search(b.source, OnlineMatch.searchTerm(p.name)).forEach { results += Triple(b.market.id, b.market.name, it) }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Throwable) {
-                        continue // site fora do ar ou indisponível: segue com os outros
+                        // site fora do ar ou indisponível: segue com os outros
                     }
-                    val best = offers.filter { it.available && it.price > 0 }
-                        .map { it to FuzzyMatcher.calculateAffinity(it.name, p.name) }
-                        .filter { it.second >= FuzzyMatcher.AUTO_MATCH_THRESHOLD }
-                        .maxWithOrNull(compareBy<Pair<com.smartmarket.domain.online.OnlineOffer, Double>> { it.second }.thenBy { -it.first.price })
-                        ?.first ?: continue
+                }
+                val picked = if (ai.ready) {
+                    val cands = OnlineMatch.candidates(p.name, form, results, FuzzyMatcher.SUGGESTION_THRESHOLD)
+                        .take(OnlineMatch.MAX_FOR_AI)
+                    val approved = ai.approve(p, form, paid, cands)
+                    if (approved != null) OnlineMatch.cheapestApproved(cands, approved)
+                    else OnlineMatch.bestByAffinity(cands)
+                } else {
+                    OnlineMatch.bestByAffinity(OnlineMatch.candidates(p.name, form, results, FuzzyMatcher.AUTO_MATCH_THRESHOLD))
+                }
+                for (best in picked) {
                     checked++
-                    found += FoundPrice(pid, p.name, b.market.id, b.market.name, best.price, origin = "Site do mercado")
-                    online += PriceEntry(pid, b.market.id, best.price, PriceSource.ONLINE, startedAt, note = best.name)
+                    val note = best.offer.name + if (form == SaleForm.Bulk) " (preço por kg)" else ""
+                    found += FoundPrice(pid, p.name, best.marketId, best.marketName, best.price, origin = "Site do mercado", note = note)
+                    online += PriceEntry(pid, best.marketId, best.price, PriceSource.ONLINE, startedAt, note = note)
                 }
             }
         }
@@ -83,6 +101,59 @@ class PriceCheckRunner(private val c: AppContainer) {
             flyersRead = flyerResults.count { it.isNew },
             pricesChecked = checked + found.count { it.origin == "Encarte" }
         )
+    }
+
+    /** Conferência pela IA (Gemini do usuário). Se falhar uma vez, segue sem ela nesta verificação. */
+    private inner class AiChecker {
+        private var model: String? = null
+        var ready = false
+            private set
+        private var key = ""
+
+        suspend fun init() {
+            val s = c.settings.current()
+            if (!s.aiReady) return
+            key = s.geminiApiKey
+            model = s.geminiModel.ifBlank {
+                runCatching { c.gemini.discoverModel(key, s.aiFastMode) }
+                    .onSuccess { c.settings.setGemini(key, it) }
+                    .getOrNull().orEmpty()
+            }.ifBlank { null }
+            ready = model != null
+        }
+
+        suspend fun approve(p: Product, form: SaleForm, paid: PaidItem?, cands: List<OnlineCandidate>): Set<Int>? {
+            if (cands.isEmpty()) return emptySet()
+            val m = model ?: return null
+            val product = GeminiModels.MatchProduct(
+                name = p.name,
+                saleInfo = form.describe(),
+                lastPaidDescription = paid?.description,
+                lastPaidUnit = paid?.unit,
+                lastPaidPrice = paid?.price?.takeIf { it > 0 }
+            )
+            val list = cands.map {
+                GeminiModels.MatchCandidate(it.marketName, it.offer.name, it.offer.price, describeOffer(it))
+            }
+            return try {
+                c.gemini.sameProduct(key, m, product, list)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                ready = false
+                null
+            }
+        }
+
+        private fun describeOffer(cand: OnlineCandidate): String {
+            val unit = cand.offer.measurementUnit?.takeIf { it.isNotBlank() }
+            val mult = cand.offer.unitMultiplier?.takeIf { it > 0 && it != 1.0 }
+            return buildString {
+                append(cand.form.describe())
+                if (unit != null) append("; unidade de venda do site: ").append(unit)
+                if (mult != null) append(" (").append(mult).append(" por unidade)")
+            }
+        }
     }
 
     private suspend fun buildBaselines(now: Long): Map<Long, Baseline> {

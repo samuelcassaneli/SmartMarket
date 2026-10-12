@@ -110,6 +110,15 @@ interface PurchaseDao {
     """)
     suspend fun getPaidPrices(): List<PaidPrice>
 
+    /** Itens de nota vinculados a produtos (mais recentes primeiro): descrição e unidade dão o tamanho/forma de venda. */
+    @Query("""
+        SELECT pi.productId AS productId, pi.rawDescription AS description, pi.unit AS unit, pi.unitPrice AS price
+        FROM purchase_items pi INNER JOIN purchases pu ON pu.id = pi.purchaseId
+        WHERE pi.productId IS NOT NULL
+        ORDER BY pu.issuedAt DESC
+    """)
+    suspend fun getPaidItems(): List<PaidItem>
+
     @Query("""
         SELECT DISTINCT pi.productId FROM purchase_items pi INNER JOIN purchases pu ON pu.id = pi.purchaseId
         WHERE pi.productId IS NOT NULL AND pu.issuedAt >= :since

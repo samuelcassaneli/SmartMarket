@@ -147,6 +147,76 @@ object GeminiModels {
         }.distinctBy { it.description.lowercase() + "|" + it.price }
     }
 
+    // ------------------------------------------------------------ Conferência de produto (busca nos sites)
+
+    /** Regras para decidir se uma oferta de site é o MESMO produto cadastrado (para comparar preço). */
+    val MATCH_RULES = """
+        Você confere se ofertas encontradas nos sites de supermercados brasileiros são O MESMO produto que o usuário
+        cadastrou, para comparar preço com o que ele costuma pagar. Regras obrigatórias:
+        1. Mesmo tipo e mesma variante: leite integral é diferente de desnatado; amaciante concentrado é diferente do comum;
+           alho in natura é diferente de alho frito, pasta de alho, alho picado ou descascado; carne moída é diferente de bife;
+           sabão em pó é diferente de líquido; refrigerante zero é diferente do normal.
+        2. Mesma forma de venda. Produto vendido por kg / a granel (ex.: "Alho kg", "Banana prata kg", "Tomate kg", nota com
+           unidade KG) só casa com oferta vendida por kg / a granel ou embalagem de exatamente 1 kg. Pacotes, bandejas,
+           saquinhos ou potes pequenos (60 g, 100 g, 200 g, 500 g...) NÃO servem, mesmo sendo o mesmo alimento.
+        3. Produto com tamanho (5 kg, 1,5 L, 395 g, 2 L, c/ 12, 4 rolos) só casa com oferta do mesmo tamanho (até 10% de
+           diferença) e da mesma quantidade de unidades. Fardo, caixa ou kit com várias unidades é diferente de unidade avulsa.
+        4. Marca: se o cadastro cita uma marca, a oferta precisa ser da mesma marca. Sem marca no cadastro, qualquer marca serve.
+        5. Quando o nome do cadastro for vago, use a última nota fiscal (descrição, unidade e preço pago) como pista do
+           tamanho e da forma de venda. Um preço muito menor que o pago costuma indicar embalagem menor: desconfie.
+        6. Na dúvida, NÃO inclua. É melhor não comparar do que comparar produtos diferentes.
+        Responda só com os números das ofertas que são o mesmo produto.
+    """.trimIndent()
+
+    val MATCH_SCHEMA: JsonObject = json.parseToJsonElement(
+        """{"type":"OBJECT","properties":{"iguais":{"type":"ARRAY","items":{"type":"INTEGER"}}},"required":["iguais"]}"""
+    ).jsonObject
+
+    /** Oferta candidata mostrada à IA. */
+    data class MatchCandidate(val market: String, val name: String, val price: Double, val saleInfo: String)
+
+    /** Produto cadastrado e o que se sabe dele. */
+    data class MatchProduct(
+        val name: String,
+        val saleInfo: String,
+        val lastPaidDescription: String? = null,
+        val lastPaidUnit: String? = null,
+        val lastPaidPrice: Double? = null
+    )
+
+    fun matchPrompt(product: MatchProduct, candidates: List<MatchCandidate>): String = buildString {
+        append("Produto cadastrado: ").append(product.name).append('\n')
+        append("Forma de venda: ").append(product.saleInfo).append('\n')
+        if (product.lastPaidDescription != null) {
+            append("Última nota fiscal: \"").append(product.lastPaidDescription).append('"')
+            product.lastPaidUnit?.takeIf { it.isNotBlank() }?.let { append(", unidade ").append(it) }
+            product.lastPaidPrice?.let { append(", pago ").append(money(it)).append(" por unidade") }
+            append('\n')
+        }
+        append("\nOfertas encontradas (número | mercado | descrição | preço | forma de venda):\n")
+        candidates.forEachIndexed { i, c ->
+            append(i + 1).append(" | ").append(c.market).append(" | ").append(c.name).append(" | ")
+                .append(money(c.price)).append(" | ").append(c.saleInfo).append('\n')
+        }
+    }
+
+    /** Índices (base 0) aprovados pela IA; ignora números fora da lista. */
+    fun parseMatches(body: String, count: Int): Set<Int> {
+        val root = json.parseToJsonElement(body).jsonObject
+        val text = (root["candidates"] as? JsonArray)?.firstOrNull()?.jsonObject
+            ?.get("content")?.jsonObject?.get("parts")?.jsonArray
+            ?.mapNotNull { (it as? JsonObject)?.get("text") as? JsonPrimitive }
+            ?.joinToString("") { it.content } ?: return emptySet()
+        val obj = runCatching { json.parseToJsonElement(text.trim()).jsonObject }.getOrNull() ?: return emptySet()
+        return (obj["iguais"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()?.toInt() }
+            .map { it - 1 }
+            .filter { it in 0 until count }
+            .toSet()
+    }
+
+    private fun money(v: Double) = "R$ " + String.format(java.util.Locale.ROOT, "%.2f", v).replace('.', ',')
+
     val LINKS_SCHEMA: JsonObject = json.parseToJsonElement(
         """{"type":"OBJECT","properties":{"pdfs":{"type":"ARRAY","items":{"type":"STRING"}},"imagens":{"type":"ARRAY","items":{"type":"STRING"}}},"required":["pdfs","imagens"]}"""
     ).jsonObject

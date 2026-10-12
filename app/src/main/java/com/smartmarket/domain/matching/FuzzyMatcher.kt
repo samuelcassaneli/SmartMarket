@@ -235,6 +235,13 @@ object FuzzyMatcher {
             }
         }
 
+        // Granel x pacote ("Alho kg" x "Alho 60g") é outro produto para efeito de preço
+        val fDet = SaleForm.ofText(detectedText)
+        val fProd = SaleForm.ofText(productName)
+        if ((fDet == SaleForm.Bulk) != (fProd == SaleForm.Bulk) && fDet.isKnown && fProd.isKnown &&
+            SaleForm.comparablePrice(fProd, fDet, 1.0) == null
+        ) score *= 0.5
+
         val pDet = extractPackCount(detectedText)
         val pProd = extractPackCount(productName)
         if (pDet != null && pProd != null && pDet != pProd) score *= 0.7

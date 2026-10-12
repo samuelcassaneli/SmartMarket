@@ -93,16 +93,35 @@ class GeminiClient(baseClient: OkHttpClient) {
         return GeminiModels.parseLinks(body, candidates.map { it.first }.toSet())
     }
 
+    /** Diz quais [candidates] são o mesmo produto que [product] (índices base 0). */
+    suspend fun sameProduct(
+        apiKey: String,
+        model: String,
+        product: GeminiModels.MatchProduct,
+        candidates: List<GeminiModels.MatchCandidate>
+    ): Set<Int> {
+        if (candidates.isEmpty()) return emptySet()
+        val parts = buildJsonArray { add(buildJsonObject { put("text", GeminiModels.matchPrompt(product, candidates)) }) }
+        val body = generate(apiKey, model, parts, GeminiModels.MATCH_SCHEMA, GeminiModels.MATCH_RULES)
+        return GeminiModels.parseMatches(body, candidates.size)
+    }
+
     // ------------------------------------------------------------------ HTTP
 
-    private suspend fun generate(apiKey: String, model: String, parts: JsonArray, schema: JsonObject): String {
+    private suspend fun generate(
+        apiKey: String,
+        model: String,
+        parts: JsonArray,
+        schema: JsonObject,
+        system: String = GeminiModels.SYSTEM_RULES
+    ): String {
         var attempt = 0
         while (true) {
             attempt++
             val thinking = if (model in noThinkingConfig) null else GeminiModels.fastThinking(model)
             val payload = buildJsonObject {
                 putJsonObject("systemInstruction") {
-                    putJsonArray("parts") { add(buildJsonObject { put("text", GeminiModels.SYSTEM_RULES) }) }
+                    putJsonArray("parts") { add(buildJsonObject { put("text", system) }) }
                 }
                 putJsonArray("contents") {
                     add(buildJsonObject {

@@ -158,3 +158,6 @@ data class FlyerWithMarket(
 
 /** Preço pago num item de nota. */
 data class PaidPrice(val productId: Long, val price: Double, val at: Long)
+
+/** Item de nota de um produto (para saber como ele é vendido). */
+data class PaidItem(val productId: Long, val description: String, val unit: String, val price: Double)
