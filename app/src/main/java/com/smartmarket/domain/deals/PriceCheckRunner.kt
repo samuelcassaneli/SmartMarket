@@ -117,7 +117,7 @@ class PriceCheckRunner(private val c: AppContainer) {
 
         suspend fun init() {
             val s = c.settings.current()
-            if (!s.aiReady) return
+            if (!s.aiMatchReady) return
             key = s.geminiApiKey
             model = s.geminiModel.ifBlank {
                 runCatching { c.gemini.discoverModel(key, s.aiFastMode) }

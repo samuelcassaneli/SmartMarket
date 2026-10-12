@@ -1,6 +1,7 @@
 package com.smartmarket.ui.screens.search
 
 import androidx.compose.animation.core.RepeatMode
+import com.smartmarket.ui.components.ProductAvatar
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -292,7 +293,7 @@ fun LocalProductRow(result: LocalResult, onClick: () -> Unit, modifier: Modifier
         contentPadding = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.md)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            CategoryAvatar(result.product.category)
+            ProductAvatar(result.product.category, result.product.imageUrl, size = 48.dp)
             Spacer(Modifier.width(Spacing.md))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -331,7 +332,8 @@ fun FlyerResultRow(result: FlyerResult, onClick: () -> Unit, modifier: Modifier 
         contentPadding = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.md)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            com.smartmarket.ui.components.MarketAvatar(h.marketName, h.colorHex, size = 36.dp)
+            if (result.imageUrl != null) com.smartmarket.ui.components.OfferPhoto(result.imageUrl, size = 48.dp)
+            else com.smartmarket.ui.components.MarketAvatar(h.marketName, h.colorHex, size = 36.dp)
             Spacer(Modifier.width(Spacing.md))
             Column(Modifier.weight(1f)) {
                 Text(result.description, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)

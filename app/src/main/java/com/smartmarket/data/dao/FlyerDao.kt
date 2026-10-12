@@ -32,7 +32,7 @@ interface FlyerDao {
     @Query("""
         SELECT o.id AS offerId, o.flyerId AS flyerId, f.supermarketId AS supermarketId, s.name AS marketName,
                s.colorHex AS colorHex, o.rawText AS rawText, o.price AS price, f.fetchedAt AS fetchedAt,
-               o.status AS status, p.name AS productName
+               o.status AS status, p.name AS productName, p.imageUrl AS productImageUrl
         FROM flyer_offers o
         INNER JOIN flyers f ON f.id = o.flyerId
         INNER JOIN supermarkets s ON s.id = f.supermarketId
@@ -44,7 +44,7 @@ interface FlyerDao {
 
     @Query("""
         SELECT o.id, o.flyerId, o.supermarketId, s.name AS supermarketName, o.productId, p.name AS productName,
-               o.rawText, o.price, o.confidence, o.status
+               o.rawText, o.price, o.confidence, o.status, p.imageUrl AS productImageUrl
         FROM flyer_offers o
         INNER JOIN supermarkets s ON s.id = o.supermarketId
         LEFT JOIN products p ON p.id = o.productId

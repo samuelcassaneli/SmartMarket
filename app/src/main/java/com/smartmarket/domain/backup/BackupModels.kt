@@ -110,7 +110,11 @@ data class SettingsDto(
     val themeMode: String? = null,
     val checkIntervalDays: Int? = null,
     val priceAlertsEnabled: Boolean? = null,
-    val aiEnabled: Boolean? = null
+    val aiEnabled: Boolean? = null,
+    val photosEnabled: Boolean? = null,
+    val photoAiCheck: Boolean? = null,
+    val aiMatchEnabled: Boolean? = null,
+    val aiInsightsEnabled: Boolean? = null
 )
 
 /** Arquivo de backup completo. */

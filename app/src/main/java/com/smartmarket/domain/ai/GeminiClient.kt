@@ -106,6 +106,21 @@ class GeminiClient(baseClient: OkHttpClient) {
         return GeminiModels.parseMatches(body, candidates.size)
     }
 
+    /** Escolhe a foto do produto entre as descrições (índice base 0) ou null. */
+    suspend fun pickImage(apiKey: String, model: String, product: String, candidates: List<String>): Int? {
+        if (candidates.isEmpty()) return null
+        val parts = buildJsonArray { add(buildJsonObject { put("text", GeminiModels.imagePickPrompt(product, candidates)) }) }
+        val body = generate(apiKey, model, parts, GeminiModels.IMAGE_SCHEMA, GeminiModels.IMAGE_RULES)
+        return GeminiModels.parseImagePick(body, candidates.size)
+    }
+
+    /** Dicas a partir do resumo de dados do app. */
+    suspend fun insights(apiKey: String, model: String, data: String): List<String> {
+        val parts = buildJsonArray { add(buildJsonObject { put("text", data) }) }
+        val body = generate(apiKey, model, parts, GeminiModels.INSIGHTS_SCHEMA, GeminiModels.INSIGHTS_RULES)
+        return GeminiModels.parseInsights(body)
+    }
+
     // ------------------------------------------------------------------ HTTP
 
     private suspend fun generate(

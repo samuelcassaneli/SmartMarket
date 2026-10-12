@@ -1,6 +1,7 @@
 package com.smartmarket.ui.screens.product
 
 import androidx.compose.foundation.background
+import com.smartmarket.ui.components.ProductAvatar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,8 @@ import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.HideImage
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -84,7 +87,7 @@ import com.smartmarket.ui.theme.extended
 @Composable
 fun ProductDetailScreen(productId: Long, navController: NavController) {
     val vm = appViewModel(key = "produto-$productId") { c ->
-        ProductDetailViewModel(productId, c.db, c.priceRepository)
+        ProductDetailViewModel(productId, c.db, c.priceRepository, c.imageFinder)
     }
     val state by vm.state.collectAsStateWithLifecycle()
     val deleted by vm.deleted.collectAsStateWithLifecycle()
@@ -123,6 +126,18 @@ fun ProductDetailScreen(productId: Long, navController: NavController) {
                                 Icon(Icons.Filled.MoreVert, contentDescription = "Mais opções")
                             }
                             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Buscar foto de novo") },
+                                    leadingIcon = { Icon(Icons.Filled.Image, contentDescription = null) },
+                                    onClick = { menuOpen = false; vm.searchPhoto() }
+                                )
+                                if (product.imageUrl.isNotBlank()) {
+                                    DropdownMenuItem(
+                                        text = { Text("Remover foto") },
+                                        leadingIcon = { Icon(Icons.Filled.HideImage, contentDescription = null) },
+                                        onClick = { menuOpen = false; vm.removePhoto() }
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text("Excluir produto") },
                                     leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
@@ -244,7 +259,7 @@ private fun HeaderCard(state: ProductDetailState) {
     val p = state.product ?: return
     AppCard(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            CategoryAvatar(p.category, size = 56.dp)
+            ProductAvatar(p.category, p.imageUrl, size = 72.dp)
             Spacer(Modifier.width(Spacing.lg))
             Column(Modifier.weight(1f)) {
                 Text(p.name, style = MaterialTheme.typography.titleLarge)

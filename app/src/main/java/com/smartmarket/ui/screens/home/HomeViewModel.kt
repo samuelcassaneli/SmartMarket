@@ -100,3 +100,31 @@ class HomeViewModel(
 
     private fun key(ym: YearMonth) = String.format(Locale.ROOT, "%04d-%02d", ym.year, ym.month)
 }
+
+/** Resumo dos dados para a IA gerar as dicas (só números do app, sem dados pessoais). */
+fun insightsSummary(state: HomeUiState, deals: List<com.smartmarket.domain.deals.Deal>): String {
+    if (state.loading) return ""
+    fun m(v: Double) = String.format(Locale("pt", "BR"), "R$ %.2f", v)
+    return buildString {
+        append("Mês atual: ").append(state.month.month).append('/').append(state.month.year).append('\n')
+        append("Gasto no mês: ").append(m(state.spentThisMonth)).append(" em ").append(state.purchasesThisMonth).append(" compras\n")
+        append("Gasto no mês passado: ").append(m(state.spentLastMonth)).append('\n')
+        if (state.budget > 0) append("Orçamento do mês: ").append(m(state.budget)).append('\n')
+        append("Últimos 6 meses: ").append(state.lastSixMonths.joinToString { "${it.ym.month}/${it.ym.year} ${m(it.total)}" }).append('\n')
+        if (state.byCategory.isNotEmpty()) {
+            append("Gasto por categoria no mês: ").append(state.byCategory.take(8).joinToString { "${it.label} ${m(it.total)}" }).append('\n')
+        }
+        if (state.byMarket.isNotEmpty()) {
+            append("Gasto por mercado no mês: ").append(state.byMarket.take(6).joinToString { "${it.label} ${m(it.total)}" }).append('\n')
+        }
+        if (deals.isNotEmpty()) {
+            append("Promoções encontradas (produtos que a família compra): ")
+            append(deals.take(8).joinToString { "${it.productName} de ${m(it.oldPrice)} por ${m(it.newPrice)} no ${it.marketName}" })
+            append('\n')
+        }
+        if (state.lowStock.isNotEmpty()) {
+            append("Acabando na despensa: ").append(state.lowStock.take(8).joinToString { it.productName }).append('\n')
+        }
+        if (state.pendingOffers > 0) append("Ofertas de encarte esperando revisão: ").append(state.pendingOffers).append('\n')
+    }
+}

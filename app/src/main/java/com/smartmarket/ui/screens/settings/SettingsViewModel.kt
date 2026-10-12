@@ -11,6 +11,8 @@ import com.smartmarket.data.prefs.SettingsRepository
 import com.smartmarket.domain.backup.BackupFormatException
 import com.smartmarket.domain.backup.BackupManager
 import com.smartmarket.domain.backup.ImportPreview
+import com.smartmarket.domain.images.ImageCache
+import com.smartmarket.work.ProductPhotoWorker
 import com.smartmarket.work.AutoBackupWorker
 import com.smartmarket.domain.ai.GeminiClient
 import com.smartmarket.data.entity.FlyerKind
@@ -40,7 +42,8 @@ class SettingsViewModel(
     private val appContext: Context,
     private val settings: SettingsRepository,
     db: AppDatabase,
-    private val gemini: GeminiClient
+    private val gemini: GeminiClient,
+    private val imageCache: ImageCache? = null
 ) : ViewModel() {
 
     private val supermarketDao = db.supermarketDao()
@@ -86,6 +89,40 @@ class SettingsViewModel(
     val aiChecking: StateFlow<Boolean> = _aiChecking.asStateFlow()
 
     fun setAiEnabled(enabled: Boolean) = viewModelScope.launch { settings.setAiEnabled(enabled) }
+
+    // ---- Recursos de IA e fotos
+
+    private val _photoCacheSize = MutableStateFlow(0)
+    val photoCacheSize: StateFlow<Int> = _photoCacheSize.asStateFlow()
+
+    init {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            imageCache?.version?.collect { _photoCacheSize.value = imageCache.size }
+        }
+    }
+
+    fun setPhotos(on: Boolean) = viewModelScope.launch {
+        settings.setPhotosEnabled(on)
+        if (on) ProductPhotoWorker.runNow(appContext)
+    }
+
+    fun setPhotoAi(on: Boolean) = viewModelScope.launch { settings.setPhotoAiCheck(on) }
+    fun setAiMatch(on: Boolean) = viewModelScope.launch { settings.setAiMatchEnabled(on) }
+    fun setInsights(on: Boolean) = viewModelScope.launch {
+        settings.setAiInsightsEnabled(on)
+        if (on) _messages.tryEmit("As dicas aparecem na tela inicial")
+    }
+
+    fun findPhotosNow() {
+        ProductPhotoWorker.runNow(appContext)
+        _messages.tryEmit("Buscando fotos em segundo plano. Elas aparecem conforme forem achadas.")
+    }
+
+    fun clearPhotoCache() = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        imageCache?.clear()
+        _photoCacheSize.value = 0
+        _messages.tryEmit("Fotos guardadas apagadas (as dos produtos continuam)")
+    }
 
     /** Modo rápido usa o Flash-Lite; o modelo é escolhido de novo com a chave atual. */
     fun setAiFast(fast: Boolean) = viewModelScope.launch {

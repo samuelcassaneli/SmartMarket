@@ -1,5 +1,6 @@
 package com.smartmarket.ui.screens.settings
 
+import androidx.compose.material.icons.filled.Image
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -99,12 +100,13 @@ import com.smartmarket.data.entity.Supermarket
 @Composable
 fun SettingsScreen(navController: NavController) {
     val context = LocalContext.current
-    val vm = appViewModel { c -> SettingsViewModel(c.context, c.settings, c.db, c.gemini) }
+    val vm = appViewModel { c -> SettingsViewModel(c.context, c.settings, c.db, c.gemini, c.imageCache) }
     val aiChecking by vm.aiChecking.collectAsStateWithLifecycle()
     val markets by vm.markets.collectAsStateWithLifecycle()
     val settings by vm.state.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val importPreview by vm.importPreview.collectAsStateWithLifecycle()
+    val photoCacheSize by vm.photoCacheSize.collectAsStateWithLifecycle()
     val canUndoImport by vm.canUndoImport.collectAsStateWithLifecycle()
     var confirmUndo by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
@@ -182,7 +184,7 @@ fun SettingsScreen(navController: NavController) {
                 )
             }
 
-            item(key = "ai-h") { SectionHeader("Leitura de encartes com IA") }
+            item(key = "ai-h") { SectionHeader("Inteligência artificial (Gemini)") }
             item(key = "ai") {
                 AiCard(
                     settings = s,
@@ -197,6 +199,20 @@ fun SettingsScreen(navController: NavController) {
                             )
                         }
                     }
+                )
+            }
+
+            item(key = "feat-h") { SectionHeader("Recursos de IA e fotos") }
+            item(key = "feat") {
+                AiFeaturesCard(
+                    settings = s,
+                    cachedPhotos = photoCacheSize,
+                    onPhotos = { vm.setPhotos(it) },
+                    onPhotoAi = { vm.setPhotoAi(it) },
+                    onMatch = { vm.setAiMatch(it) },
+                    onInsights = { vm.setInsights(it) },
+                    onFindNow = { vm.findPhotosNow() },
+                    onClearCache = { vm.clearPhotoCache() }
                 )
             }
 
@@ -409,6 +425,71 @@ private fun AiCard(
             }
             TextButton(onClick = onOpenKeyPage) { Text("Criar chave grátis") }
         }
+    }
+}
+
+@Composable
+private fun AiFeaturesCard(
+    settings: AppSettings,
+    cachedPhotos: Int,
+    onPhotos: (Boolean) -> Unit,
+    onPhotoAi: (Boolean) -> Unit,
+    onMatch: (Boolean) -> Unit,
+    onInsights: (Boolean) -> Unit,
+    onFindNow: () -> Unit,
+    onClearCache: () -> Unit
+) {
+    SettingsCard(
+        Icons.Filled.Image,
+        "Liga e desliga cada recurso",
+        "Os recursos com IA usam a mesma chave gratuita do Gemini acima e só funcionam com ela ligada."
+    ) {
+        FeatureSwitch(
+            "Buscar fotos dos produtos",
+            "Põe a foto nos produtos e nas ofertas dos encartes, pelos sites dos mercados e pelo Open Food Facts " +
+                "(funciona sem IA). Só usa foto do mesmo produto: marca, variante (ex.: zero) e tamanho. " +
+                "Fica guardada no celular ($cachedPhotos fotos).",
+            settings.photosEnabled, true, onPhotos
+        )
+        FeatureSwitch(
+            "Conferir fotos com IA",
+            "A IA confirma que a foto é exatamente do produto antes de usar.",
+            settings.photoAiCheck, settings.aiReady && settings.photosEnabled, onPhotoAi
+        )
+        FeatureSwitch(
+            "Conferir preços dos sites com IA",
+            "Na verificação de promoções, a IA confere se o produto achado no site é o mesmo que você cadastrou.",
+            settings.aiMatchEnabled, settings.aiReady, onMatch
+        )
+        FeatureSwitch(
+            "Dicas da IA na tela inicial",
+            "Analisa gastos, orçamento, promoções e despensa e sugere onde economizar (uma vez por dia).",
+            settings.aiInsightsEnabled, settings.aiReady, onInsights
+        )
+        if (!settings.aiReady) {
+            Text(
+                "Para os recursos com IA, salve a chave e ligue \"Usar IA\" na seção acima.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(Modifier.height(Spacing.sm))
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            FilledTonalButton(onClick = onFindNow, enabled = settings.photosEnabled) { Text("Buscar fotos agora") }
+            TextButton(onClick = onClearCache, enabled = cachedPhotos > 0) { Text("Limpar fotos guardadas") }
+        }
+    }
+}
+
+@Composable
+private fun FeatureSwitch(title: String, subtitle: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = Spacing.xs)) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(Spacing.sm))
+        Switch(checked = checked && enabled, onCheckedChange = onChange, enabled = enabled)
     }
 }
 

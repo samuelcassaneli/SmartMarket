@@ -1,6 +1,7 @@
 package com.smartmarket.ui.screens.pantry
 
 import androidx.compose.foundation.background
+import com.smartmarket.ui.components.ProductAvatar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -400,7 +401,7 @@ private fun AddPantryItemSheet(
                         .padding(vertical = Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    CategoryAvatar(p.category, size = 36.dp)
+                    ProductAvatar(p.category, p.imageUrl, size = 36.dp)
                     Spacer(Modifier.width(Spacing.md))
                     Column(Modifier.weight(1f)) {
                         Text(p.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

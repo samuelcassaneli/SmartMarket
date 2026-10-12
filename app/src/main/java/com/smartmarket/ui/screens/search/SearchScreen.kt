@@ -73,6 +73,7 @@ fun SearchScreen(initialQuery: String, navController: NavController) {
             shoppingListDao = c.db.shoppingListDao(),
             purchaseDao = c.db.purchaseDao(),
             flyerDao = c.db.flyerDao(),
+            imageCache = c.imageCache,
             priceRepository = c.priceRepository,
             productMatcher = c.productMatcher,
             registry = MarketSourceRegistry.get(c.httpClient, c.settings),

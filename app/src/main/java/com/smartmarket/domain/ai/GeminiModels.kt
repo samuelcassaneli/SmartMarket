@@ -239,6 +239,68 @@ object GeminiModels {
 
     private fun money(v: Double) = "R$ " + String.format(java.util.Locale.ROOT, "%.2f", v).replace('.', ',')
 
+    // ------------------------------------------------------------ Foto do produto
+
+    val IMAGE_RULES = """
+        Você escolhe a foto certa de um produto de supermercado brasileiro entre fotos encontradas na internet,
+        olhando só a descrição de cada foto. A foto precisa ser EXATAMENTE do mesmo produto:
+        1. Mesmo tipo e mesma marca.
+        2. Mesma variante: "zero", "light", "diet", sabor, fragrância, "integral", "sem lactose", "picante" etc.
+           Ex.: "Ketchup Heinz Zero 600g" NÃO pode usar a foto do "Ketchup Heinz 600g" (o normal), e vice-versa.
+        3. Mesmo tamanho/peso/volume e mesma quantidade de unidades (fardo/caixa é diferente de unidade).
+        4. Se o produto não informa algum detalhe (ex.: não diz o tamanho), qualquer valor desse detalhe serve,
+           mas prefira a versão mais comum.
+        5. Na dúvida, responda 0 (nenhuma). Uma foto errada é pior do que nenhuma.
+        Responda com o número da foto certa, ou 0.
+    """.trimIndent()
+
+    val IMAGE_SCHEMA: JsonObject = json.parseToJsonElement(
+        """{"type":"OBJECT","properties":{"escolha":{"type":"INTEGER"}},"required":["escolha"]}"""
+    ).jsonObject
+
+    fun imagePickPrompt(product: String, candidates: List<String>): String = buildString {
+        append("Produto: ").append(product).append("\n\nFotos encontradas (número | descrição da foto):\n")
+        candidates.forEachIndexed { i, c -> append(i + 1).append(" | ").append(c).append('\n') }
+    }
+
+    /** Índice base 0 escolhido pela IA, ou null (nenhuma / resposta inválida). */
+    fun parseImagePick(body: String, count: Int): Int? {
+        val obj = responseObject(body) ?: return null
+        val n = (obj["escolha"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()?.toInt() ?: return null
+        return (n - 1).takeIf { it in 0 until count }
+    }
+
+    // ------------------------------------------------------------ Insights
+
+    val INSIGHTS_RULES = """
+        Você é um assistente de compras de supermercado de uma família brasileira. Com os dados do app (gastos,
+        orçamento, categorias, mercados, promoções e despensa), escreva de 3 a 5 dicas curtas e práticas em
+        português do Brasil, cada uma com no máximo 160 caracteres. Use só os números fornecidos; não invente
+        preços nem produtos. Priorize: economia possível, orçamento, promoções de produtos que a família compra,
+        itens acabando e mercado mais vantajoso. Sem saudações, sem emojis.
+    """.trimIndent()
+
+    val INSIGHTS_SCHEMA: JsonObject = json.parseToJsonElement(
+        """{"type":"OBJECT","properties":{"dicas":{"type":"ARRAY","items":{"type":"STRING"}}},"required":["dicas"]}"""
+    ).jsonObject
+
+    fun parseInsights(body: String): List<String> {
+        val obj = responseObject(body) ?: return emptyList()
+        return (obj["dicas"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { t -> t.isNotEmpty() } }
+            .take(5)
+    }
+
+    /** Objeto JSON da resposta do generateContent (texto da primeira candidata). */
+    private fun responseObject(body: String): JsonObject? {
+        val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull() ?: return null
+        val text = (root["candidates"] as? JsonArray)?.firstOrNull()?.jsonObject
+            ?.get("content")?.jsonObject?.get("parts")?.jsonArray
+            ?.mapNotNull { (it as? JsonObject)?.get("text") as? JsonPrimitive }
+            ?.joinToString("") { it.content } ?: return null
+        return runCatching { json.parseToJsonElement(text.trim()).jsonObject }.getOrNull()
+    }
+
     val LINKS_SCHEMA: JsonObject = json.parseToJsonElement(
         """{"type":"OBJECT","properties":{"pdfs":{"type":"ARRAY","items":{"type":"STRING"}},"imagens":{"type":"ARRAY","items":{"type":"STRING"}}},"required":["pdfs","imagens"]}"""
     ).jsonObject

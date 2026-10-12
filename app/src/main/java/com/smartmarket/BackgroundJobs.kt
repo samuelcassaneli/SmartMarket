@@ -4,6 +4,7 @@ import android.content.Context
 import com.smartmarket.work.AutoBackupWorker
 import com.smartmarket.work.FlyerSyncWorker
 import com.smartmarket.work.PriceAlertWorker
+import com.smartmarket.work.ProductPhotoWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,6 +31,10 @@ object BackgroundJobs {
                     PriceAlertWorker.schedule(app, alerts)
                     AutoBackupWorker.schedule(app, backup)
                 }
+        }
+        scope.launch {
+            app.container.settings.settings.map { it.photosEnabled }.distinctUntilChanged()
+                .collect { ProductPhotoWorker.schedule(app, it) }
         }
     }
 }

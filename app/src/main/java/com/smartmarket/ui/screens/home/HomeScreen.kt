@@ -1,5 +1,12 @@
 package com.smartmarket.ui.screens.home
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.AutoAwesome
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -98,7 +105,14 @@ fun HomeScreen(navController: NavController) {
     val greeting = remember { greeting() }
     val today = remember { todayLabel() }
     val container = LocalAppContainer.current
+    val appSettings by container.settings.settings.collectAsStateWithLifecycle(initialValue = null)
+    val insights by container.aiInsights.state.collectAsStateWithLifecycle()
+    val insightsScope = rememberCoroutineScope()
     val dealReport by container.dealReports.report.collectAsStateWithLifecycle()
+    val summary = remember(state, dealReport) { insightsSummary(state, dealReport?.deals.orEmpty()) }
+    LaunchedEffect(summary, appSettings?.insightsReady) {
+        if (appSettings?.insightsReady == true && summary.isNotBlank()) container.aiInsights.refresh(summary)
+    }
     var showDealsPopup by remember { mutableStateOf(true) }
     val unseenDeals = dealReport?.takeIf { !it.seen && it.deals.isNotEmpty() }
     if (unseenDeals != null && showDealsPopup) {
@@ -157,6 +171,11 @@ fun HomeScreen(navController: NavController) {
                 )
             }
             val deals = dealReport?.deals.orEmpty()
+            if (appSettings?.insightsReady == true) {
+                item(key = "insights") {
+                    InsightsCard(insights, onRefresh = { insightsScope.launch { container.aiInsights.refresh(summary, force = true) } })
+                }
+            }
             if (deals.isNotEmpty()) {
                 item(key = "deals") {
                     AppCard(
@@ -531,4 +550,29 @@ private fun todayLabel(): String {
     val ptBr = Locale("pt", "BR")
     val text = SimpleDateFormat("EEEE, d 'de' MMMM", ptBr).format(Date())
     return text.replaceFirstChar { if (it.isLowerCase()) it.titlecase(ptBr) else it.toString() }
+}
+
+@Composable
+private fun InsightsCard(ui: com.smartmarket.domain.ai.InsightsUi, onRefresh: () -> Unit) {
+    AppCard(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(Spacing.sm))
+            Text("Dicas da IA", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            if (ui.loading) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                IconButton(onClick = onRefresh) { Icon(Icons.Filled.Refresh, contentDescription = "Gerar de novo") }
+            }
+        }
+        val tips = ui.insights?.tips.orEmpty()
+        when {
+            tips.isNotEmpty() -> tips.forEach { t ->
+                Text("• $t", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = Spacing.xs))
+            }
+            ui.error != null -> Text(ui.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            ui.loading -> Text("Analisando seus gastos…", style = MaterialTheme.typography.bodySmall)
+            else -> Text("Toque em atualizar para gerar dicas.", style = MaterialTheme.typography.bodySmall)
+        }
+    }
 }

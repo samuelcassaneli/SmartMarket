@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.FilterChip
 import com.smartmarket.data.dao.FlyerWithMarket
 import com.smartmarket.ui.navigation.Routes
+import com.smartmarket.ui.components.OfferPhoto
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -90,7 +91,8 @@ fun FlyerReviewScreen(flyerId: Long, navController: NavController) {
             productDao = c.db.productDao(),
             shoppingListDao = c.db.shoppingListDao(),
             priceRepository = c.priceRepository,
-            matcher = c.productMatcher
+            matcher = c.productMatcher,
+            imageCache = c.imageCache
         )
     }
     val flyer by vm.flyer.collectAsStateWithLifecycle()
@@ -345,6 +347,10 @@ private fun OfferCard(
             if (selectionMode) {
                 Checkbox(checked = selected, onCheckedChange = { onToggle() })
                 Spacer(Modifier.width(Spacing.xs))
+            }
+            if (u.imageUrl != null) {
+                OfferPhoto(u.imageUrl, size = 56.dp)
+                Spacer(Modifier.width(Spacing.sm))
             }
             Column(Modifier.weight(1f)) {
                 Text(

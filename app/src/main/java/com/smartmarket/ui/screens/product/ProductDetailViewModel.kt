@@ -1,5 +1,7 @@
 package com.smartmarket.ui.screens.product
 
+import com.smartmarket.domain.images.ImageMatch
+import com.smartmarket.domain.images.ProductImageFinder
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
@@ -90,7 +92,8 @@ private data class PartB(
 class ProductDetailViewModel(
     private val productId: Long,
     private val db: AppDatabase,
-    private val priceRepository: PriceRepository
+    private val priceRepository: PriceRepository,
+    private val imageFinder: ProductImageFinder? = null
 ) : ViewModel() {
 
     private val productDao = db.productDao()
@@ -235,8 +238,11 @@ class ProductDetailViewModel(
             _messages.tryEmit("O nome não pode ficar vazio")
             return@launchSafe
         }
+        // nome ou código mudou (ex.: virou "zero"): a foto antiga pode ser de outro produto
+        val specChanged = ImageMatch.key(cleanName) != ImageMatch.key(p.name) || barcode.filter { it.isDigit() } != p.barcode
         productDao.updateProduct(
             p.copy(
+                imageUrl = if (specChanged) "" else p.imageUrl,
                 name = cleanName,
                 normalizedName = cleanName.lowercase().trim(),
                 category = category.trim().ifEmpty { "Geral" },
@@ -246,6 +252,44 @@ class ProductDetailViewModel(
             )
         )
         _messages.tryEmit("Produto atualizado")
+        if (specChanged) findPhoto(force = false)
+    }
+
+    // ---- Foto
+
+    private val _photoBusy = MutableStateFlow(false)
+    val photoBusy: StateFlow<Boolean> = _photoBusy.asStateFlow()
+
+    init {
+        // produto sem foto: procura sozinho (usa o cache; só vai à internet na primeira vez)
+        viewModelScope.launch { runCatching { findPhoto(force = false) } }
+    }
+
+    private suspend fun findPhoto(force: Boolean): Boolean {
+        val finder = imageFinder ?: return false
+        val p = productDao.getProductById(productId) ?: return false
+        if (!force && p.imageUrl.isNotBlank()) return true
+        _photoBusy.value = true
+        try {
+            val url = finder.find(p.name, p.barcode, force) ?: return false
+            productDao.setImageUrl(productId, url)
+            return true
+        } finally {
+            finder.save()
+            _photoBusy.value = false
+        }
+    }
+
+    /** Procura de novo, ignorando o cache. */
+    fun searchPhoto() = launchSafe {
+        if (imageFinder == null) return@launchSafe
+        val ok = findPhoto(force = true)
+        _messages.tryEmit(if (ok) "Foto atualizada" else "Nenhuma foto exata deste produto (marca, variante e tamanho)")
+    }
+
+    fun removePhoto() = launchSafe {
+        productDao.setImageUrl(productId, "")
+        _messages.tryEmit("Foto removida")
     }
 
     fun delete() = launchSafe {

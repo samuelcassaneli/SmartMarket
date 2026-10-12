@@ -45,6 +45,9 @@ interface ProductDao {
     @Update
     suspend fun updateProduct(product: Product)
 
+    @Query("UPDATE products SET imageUrl = :url WHERE id = :id")
+    suspend fun setImageUrl(id: Long, url: String)
+
     @Delete
     suspend fun deleteProduct(product: Product)
 

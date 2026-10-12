@@ -60,7 +60,13 @@ enum class SearchFilter(val label: String) {
 data class LocalResult(val product: Product, val bestPrice: BestPrice?)
 
 /** Oferta de encarte que casa com a busca. */
-data class FlyerResult(val hit: FlyerOfferHit, val description: String, val note: String, val brand: String?)
+data class FlyerResult(
+    val hit: FlyerOfferHit,
+    val description: String,
+    val note: String,
+    val brand: String?,
+    val imageUrl: String? = null
+)
 
 /** Oferta pronta para exibir: com o mercado e o preço por unidade já calculado. */
 data class OfferUi(
@@ -128,6 +134,7 @@ class SearchViewModel(
     private val shoppingListDao: ShoppingListDao,
     private val purchaseDao: PurchaseDao,
     private val flyerDao: FlyerDao,
+    private val imageCache: com.smartmarket.domain.images.ImageCache? = null,
     private val priceRepository: PriceRepository,
     private val productMatcher: ProductMatcher,
     private val registry: MarketSourceRegistry,
@@ -249,7 +256,10 @@ class SearchViewModel(
                 val (desc, note) = OfferText.split(h.rawText)
                 val hay = FuzzyMatcher.normalize(desc + " " + (h.productName ?: ""))
                 val ok = tokens.all { hay.contains(it) } || FuzzyMatcher.calculateAffinity(desc, term) >= FuzzyMatcher.AUTO_MATCH_THRESHOLD
-                if (!ok) null else FlyerResult(h, desc, note, BrandGuess.extract(desc, h.productName ?: term))
+                if (!ok) null else FlyerResult(
+                    h, desc, note, BrandGuess.extract(desc, h.productName ?: term),
+                    imageCache?.peek(desc) ?: h.productImageUrl?.takeIf { it.isNotBlank() }
+                )
             }
             .distinctBy { "${it.hit.supermarketId}|${FuzzyMatcher.normalize(it.description)}|${it.hit.price}" }
             .sortedWith(compareBy<FlyerResult> { it.hit.price }.thenByDescending { it.hit.fetchedAt })

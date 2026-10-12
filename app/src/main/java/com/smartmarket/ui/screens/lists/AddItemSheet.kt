@@ -3,6 +3,7 @@
 package com.smartmarket.ui.screens.lists
 
 import androidx.compose.foundation.clickable
+import com.smartmarket.ui.components.ProductAvatar
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -168,7 +169,7 @@ fun AddItemSheet(
                         .padding(vertical = Spacing.sm, horizontal = Spacing.sm)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 40.dp)) {
-                        CategoryAvatar(product.category, size = 36.dp)
+                        ProductAvatar(product.category, product.imageUrl, size = 36.dp)
                         Spacer(Modifier.width(Spacing.md))
                         Column(Modifier.weight(1f)) {
                             Text(product.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

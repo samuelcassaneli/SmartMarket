@@ -141,7 +141,8 @@ data class FlyerOfferWithProduct(
     val rawText: String,
     val price: Double,
     val confidence: Double,
-    val status: String
+    val status: String,
+    val productImageUrl: String? = null
 )
 
 data class FlyerWithMarket(
@@ -174,5 +175,6 @@ data class FlyerOfferHit(
     val price: Double,
     val fetchedAt: Long,
     val status: String,
-    val productName: String?
+    val productName: String?,
+    val productImageUrl: String? = null
 )

@@ -78,7 +78,11 @@ class BackupManager(
                     themeMode = s.themeMode,
                     checkIntervalDays = s.checkIntervalDays,
                     priceAlertsEnabled = s.priceAlertsEnabled,
-                    aiEnabled = s.aiEnabled
+                    aiEnabled = s.aiEnabled,
+                    photosEnabled = s.photosEnabled,
+                    photoAiCheck = s.photoAiCheck,
+                    aiMatchEnabled = s.aiMatchEnabled,
+                    aiInsightsEnabled = s.aiInsightsEnabled
                 )
             }
         )
@@ -204,6 +208,10 @@ class BackupManager(
         dto.themeMode?.let { repo.setThemeMode(it) }
         dto.checkIntervalDays?.let { repo.setCheckIntervalDays(it) }
         dto.priceAlertsEnabled?.let { repo.setPriceAlertsEnabled(it) }
+        dto.photosEnabled?.let { repo.setPhotosEnabled(it) }
+        dto.photoAiCheck?.let { repo.setPhotoAiCheck(it) }
+        dto.aiMatchEnabled?.let { repo.setAiMatchEnabled(it) }
+        dto.aiInsightsEnabled?.let { repo.setAiInsightsEnabled(it) }
         // a IA só liga de novo se este aparelho já tiver uma chave
         dto.aiEnabled?.let { if (repo.current().geminiApiKey.isNotBlank()) repo.setAiEnabled(it) }
     }

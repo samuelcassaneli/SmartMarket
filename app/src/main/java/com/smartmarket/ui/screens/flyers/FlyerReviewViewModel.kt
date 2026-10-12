@@ -13,6 +13,7 @@ import com.smartmarket.data.entity.Product
 import com.smartmarket.data.repo.PriceEntry
 import com.smartmarket.data.repo.PriceRepository
 import com.smartmarket.domain.flyers.OfferText
+import com.smartmarket.domain.images.ImageCache
 import com.smartmarket.domain.matching.BrandGuess
 import com.smartmarket.domain.matching.FuzzyMatcher
 import com.smartmarket.domain.matching.ProductMatcher
@@ -36,7 +37,9 @@ data class OfferUi(
     val note: String,
     val inMyList: Boolean,
     /** Marca deduzida do texto do encarte em relação ao produto vinculado ("Soya", "Galo"). */
-    val brand: String? = null
+    val brand: String? = null,
+    /** Foto da oferta (cache por especificação) ou, sem ela, a do produto vinculado. */
+    val imageUrl: String? = null
 )
 
 data class ReviewUi(
@@ -54,7 +57,8 @@ class FlyerReviewViewModel(
     private val productDao: ProductDao,
     private val shoppingListDao: ShoppingListDao,
     private val priceRepository: PriceRepository,
-    private val matcher: ProductMatcher
+    private val matcher: ProductMatcher,
+    private val imageCache: ImageCache? = null
 ) : ViewModel() {
 
     val flyer: StateFlow<FlyerWithMarket?> = flyerDao.getFlyers()
@@ -82,12 +86,13 @@ class FlyerReviewViewModel(
 
     /** Todas as ofertas do encarte, sem filtro. */
     private val allOffers: StateFlow<List<OfferUi>?> = combine(
-        flyerDao.getOffersForFlyer(flyerId), listProductIds
-    ) { offers, mine ->
+        flyerDao.getOffersForFlyer(flyerId), listProductIds, imageCache?.version ?: MutableStateFlow(0)
+    ) { offers, mine, _ ->
         offers.map { o ->
             val (desc, note) = OfferText.split(o.rawText)
             val pid = o.productId
-            OfferUi(o, desc, note, pid != null && pid in mine, BrandGuess.extract(desc, o.productName))
+            val photo = imageCache?.peek(desc) ?: o.productImageUrl?.takeIf { it.isNotBlank() }
+            OfferUi(o, desc, note, pid != null && pid in mine, BrandGuess.extract(desc, o.productName), photo)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 

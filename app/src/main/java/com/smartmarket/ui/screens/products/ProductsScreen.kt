@@ -3,6 +3,7 @@
 package com.smartmarket.ui.screens.products
 
 import androidx.compose.foundation.clickable
+import com.smartmarket.ui.components.ProductAvatar
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -180,7 +181,7 @@ private fun ProductRow(row: ProductRowUi, onClick: () -> Unit) {
             .padding(vertical = Spacing.md, horizontal = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        CategoryAvatar(p.category)
+        ProductAvatar(p.category, p.imageUrl, size = 48.dp)
         Spacer(Modifier.width(Spacing.md))
         Column(Modifier.weight(1f)) {
             Text(p.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

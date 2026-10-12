@@ -65,6 +65,8 @@ class FlyerSyncWorker(appContext: Context, params: WorkerParameters) : Coroutine
                 notifyDeals(report)
             }
             val newCount = results.count { it.isNew }
+            // fotos das ofertas novas (usa o cache; só procura o que ainda não conhece)
+            if (newCount > 0 && container.settings.current().photosEnabled) ProductPhotoWorker.runNow(applicationContext)
             val failed = results.count { it.error != null }
             Result.success(
                 workDataOf(

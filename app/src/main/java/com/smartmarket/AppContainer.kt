@@ -1,5 +1,11 @@
 package com.smartmarket
 
+import com.smartmarket.domain.ai.AiModelResolver
+import com.smartmarket.domain.images.ImageCache
+import com.smartmarket.domain.images.OpenFoodFacts
+import com.smartmarket.domain.images.ProductImageFinder
+import com.smartmarket.domain.online.MarketSourceRegistry
+
 import android.content.Context
 import com.smartmarket.data.db.AppDatabase
 import com.smartmarket.data.prefs.SettingsRepository
@@ -44,6 +50,28 @@ class AppContainer(val context: Context) {
     val gemini: GeminiClient by lazy { GeminiClient(httpClient) }
 
     val flyerInterpreter: FlyerInterpreter by lazy { FlyerInterpreter(settings, gemini) }
+
+    val aiModels: AiModelResolver by lazy { AiModelResolver(settings, gemini) }
+
+    val imageCache: ImageCache by lazy { ImageCache(context) }
+
+    /** Dicas da IA na tela inicial. */
+    val aiInsights: com.smartmarket.domain.ai.AiInsights by lazy {
+        com.smartmarket.domain.ai.AiInsights(context, settings, gemini, aiModels)
+    }
+
+    /** Fotos dos produtos (sites dos mercados, Open Food Facts e conferência opcional pela IA). */
+    val imageFinder: ProductImageFinder by lazy {
+        ProductImageFinder(
+            settings = settings,
+            registry = MarketSourceRegistry.get(httpClient, settings),
+            supermarketDao = db.supermarketDao(),
+            off = OpenFoodFacts(httpClient),
+            gemini = gemini,
+            ai = aiModels,
+            cache = imageCache
+        )
+    }
 
     /** Último relatório de promoções da verificação periódica. */
     val dealReports: DealReportStore by lazy { DealReportStore(context) }
